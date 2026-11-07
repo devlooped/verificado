@@ -76,3 +76,14 @@ test("without proposals, collection files an empty source file", async () => {
   const { service } = reader();
   assert.deepEqual(await collectEvidence([], [], service), { events: [{ type: "evidence_unified", sources: [] }], rejected: [] });
 });
+
+test("source progress identifies started, completed, and failed reads without changing results", async () => {
+  const { service } = reader();
+  const progress: Array<[string, string, string | undefined]> = [];
+  const urls = ["https://example.org/informe", "https://example.org/caida"];
+  const fetched = await fetchProposedUrls(service, urls, undefined, (url, state, _duration, code) => { progress.push([url, state, code]); });
+  assert.deepEqual(progress.filter((item) => item[1] === "started").map((item) => item[0]), urls);
+  assert.ok(progress.some(([url, state]) => url === urls[0] && state === "ready"));
+  assert.ok(progress.some(([url, state, code]) => url === urls[1] && state === "failed" && code === fetched[1]!.error));
+  assert.ok(fetched[0]!.sourceId);
+});

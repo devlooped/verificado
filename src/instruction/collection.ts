@@ -24,8 +24,13 @@ const MAX_EXCERPT_CHARS = 30_000;
 // after a wait fails the step, so that the workflow retries it.
 const PENDING_WAIT_MS = 60_000, PENDING_POLL_MS = 250;
 
-export async function fetchProposedUrls(reader: SourceService, urls: readonly string[], pendingWaitMs = PENDING_WAIT_MS): Promise<FetchedUrl[]> {
+export async function fetchProposedUrls(reader: SourceService, urls: readonly string[], pendingWaitMs = PENDING_WAIT_MS, progress?: (url: string, state: "started" | "ready" | "failed" | "error", durationMs: number, errorCode?: string) => void): Promise<FetchedUrl[]> {
   return mapLimit(urls, COLLECTION_BATCH, async (url) => {
+    const started = Date.now();
+    const report = (state: "started" | "ready" | "failed" | "error", errorCode?: string) => {
+      try { progress?.(url, state, Date.now() - started, errorCode); } catch { /* telemetry is best-effort */ }
+    };
+    report("started");
     try {
       // Two URLs of the batch can lead to the same page (two grounding
       // redirects, or a redirect and its target): the second waits for the
@@ -36,11 +41,14 @@ export async function fetchProposedUrls(reader: SourceService, urls: readonly st
         await new Promise((resolve) => setTimeout(resolve, PENDING_POLL_MS));
         result = await reader.read({ url, maxChars: 1 });
       }
-      if (result.status === "ready") return { url, sourceId: result.sourceId };
+      if (result.status === "ready") { report("ready"); return { url, sourceId: result.sourceId }; }
       if (result.status === "pending") throw new Error(`Source ${url} is still being read`);
-      return { url, error: result.errorCode ?? `source_${result.status}` };
+      const error = result.errorCode ?? `source_${result.status}`;
+      report("failed", error);
+      return { url, error };
     } catch (error) {
-      if (error instanceof ZodError) return { url, error: "invalid_url" };
+      if (error instanceof ZodError) { report("failed", "invalid_url"); return { url, error: "invalid_url" }; }
+      report("error");
       throw error;
     }
   });

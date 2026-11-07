@@ -31,47 +31,56 @@ import { advanceSharedTurn } from "../court/settled-play.ts";
 import { settleEvidence } from "../evidence/settled.ts";
 import { caseSourceService } from "../instruction/proxy.ts";
 import { deleteCaseSandboxes } from "../instruction/preparation.ts";
+import { caseLog, errorFields, observeCaseStep } from "../lib/case-telemetry.ts";
+import { sha256 } from "../evidence/validate.ts";
 
 // One snapshot per session: every turn uses, and the case records, the same models.
 async function configuredModels(caseId: string, shared = false): Promise<ModelConfig> {
   "use step";
-  if (shared) {
-    const stored = await getCase(caseId);
-    if (stored?.models) return Object.fromEntries(Object.entries(stored.models).map(([role, model]) => [role, courtModel(model.id, model.effort)])) as ModelConfig;
-  }
-  const models = await loadModels();
-  await saveCaseModels(caseId, modelSnapshot(models));
-  return models;
+  return observeCaseStep(caseId, "configure_models", {}, async () => {
+    if (shared) {
+      const stored = await getCase(caseId);
+      if (stored?.models) return Object.fromEntries(Object.entries(stored.models).map(([role, model]) => [role, courtModel(model.id, model.effort)])) as ModelConfig;
+    }
+    const models = await loadModels();
+    await saveCaseModels(caseId, modelSnapshot(models));
+    return models;
+  });
 }
 
 async function collectShared(caseId: string, submission: Submission, simulated: boolean, models: ModelConfig) {
   "use step";
-  const sources = simulated ? mockInstructionSources : liveSourceDependencies(models.translator, caseId);
-  if (!simulated) sources.download = sourceDownloader(models["research.x"], caseId);
-  try {
-    return await collectInstruction(caseId, submission, models, simulated, {
-      sources, artifacts: simulated ? mockInstructionArtifacts : caseArtifactStore, getImage, saveLanguage: saveCaseLanguage, detect: resolveCaseLanguage,
-      ...(simulated ? { describe: async () => ({ text: "SIMULACIÓN LOCAL: Imagen ficticia para el procedimiento.", tool: "fixture", confidence: 1 }) } : {}),
-    });
-  } catch (error) { throw fatalSourceFailure(error); }
+  return observeCaseStep(caseId, "intake_collection", {}, async () => {
+    const sources = simulated ? mockInstructionSources : liveSourceDependencies(models.translator, caseId);
+    if (!simulated) sources.download = sourceDownloader(models["research.x"], caseId);
+    try {
+      return await collectInstruction(caseId, submission, models, simulated, {
+        sources, artifacts: simulated ? mockInstructionArtifacts : caseArtifactStore, getImage, saveLanguage: saveCaseLanguage, detect: resolveCaseLanguage,
+        ...(simulated ? { describe: async () => ({ text: "SIMULACIÓN LOCAL: Imagen ficticia para el procedimiento.", tool: "fixture", confidence: 1 }) } : {}),
+      });
+    } catch (error) { throw fatalSourceFailure(error); }
+  });
 }
 
 // One unit of a shared turn: a preparation call or a decision generation. The
 // workflow loops over units, so no step lasts as long as the whole turn.
 async function advanceShared(caseId: string, docket: Docket, spec: TurnSpec, record: readonly CourtEvent[], attempt: number): Promise<TurnOutcome | null> {
   "use step";
-  const stored = await getCase(caseId);
-  if (!stored) throw new Error("Shared case unavailable");
-  let outcome: TurnOutcome | undefined;
-  try {
-    outcome = await advanceSharedTurn(caseId, docket, spec, record, attempt, docket.simulated ? {
-      record: stored, reader: new SourceService(caseId, docket.language!, mockInstructionSources), artifacts: mockInstructionArtifacts,
-      model: createMockSeat({ spec, record, submission: docket.submission, shared: true, native: stored.pipelineVersion === 3 }, false).model,
-      prepare: async () => "SIMULACIÓN LOCAL: Análisis preparatorio ficticio; no agrega pruebas.", worker: mockResearchWorker,
-      audit: async () => {}, activity: recordCaseToolActivity,
-    } : undefined);
-  } catch (error) { throw fatalSourceFailure(error); }
-  return outcome ? linkEvidenceRun(outcome, undefined, docket.simulated, docket.models) : null;
+  return observeCaseStep(caseId, "advance_turn", { "turn.kind": spec.kind, "turn.seat": "counsel" in spec ? spec.counsel : "speaker" in spec ? spec.speaker : "judge", "turn.attempt": attempt }, async () => {
+    const stored = await getCase(caseId);
+    if (!stored) throw new Error("Shared case unavailable");
+    let outcome: TurnOutcome | undefined;
+    try {
+      outcome = await advanceSharedTurn(caseId, docket, spec, record, attempt, docket.simulated ? {
+        record: stored, reader: new SourceService(caseId, docket.language!, mockInstructionSources), artifacts: mockInstructionArtifacts,
+        model: createMockSeat({ spec, record, submission: docket.submission, shared: true, native: stored.pipelineVersion === 3 }, false).model,
+        prepare: async () => "SIMULACIÓN LOCAL: Análisis preparatorio ficticio; no agrega pruebas.", worker: mockResearchWorker,
+        audit: async () => {}, activity: recordCaseToolActivity,
+      } : undefined);
+    } catch (error) { throw fatalSourceFailure(error); }
+    caseLog(caseId, outcome && !outcome.done ? "warn" : "info", outcome ? "case.turn.finished" : "case.turn.pending", { "turn.kind": spec.kind, "turn.seat": "counsel" in spec ? spec.counsel : "speaker" in spec ? spec.speaker : "judge", "turn.done": outcome?.done ?? false });
+    return outcome ? linkEvidenceRun(outcome, undefined, docket.simulated, docket.models) : null;
+  });
 }
 
 // A turn makes progress or spends its time budget at every unit; this bound
@@ -88,12 +97,14 @@ async function playShared(caseId: string, docket: Docket, spec: TurnSpec, record
 
 async function settleShared(caseId: string, language: string, events: readonly RecordedEvent[], simulated: boolean) {
   "use step";
-  await revokeSandboxBindings(caseId);
-  const stored = await getCase(caseId);
-  if (!stored) throw new Error("Shared case unavailable");
-  try {
-    return await settleEvidence(caseId, language, events, simulated ? new SourceService(caseId, language, mockInstructionSources) : caseSourceService(stored), simulated ? mockInstructionArtifacts : caseArtifactStore);
-  } catch (error) { throw fatalSourceFailure(error); }
+  return observeCaseStep(caseId, "settle_evidence", {}, async () => {
+    await revokeSandboxBindings(caseId);
+    const stored = await getCase(caseId);
+    if (!stored) throw new Error("Shared case unavailable");
+    try {
+      return await settleEvidence(caseId, language, events, simulated ? new SourceService(caseId, language, mockInstructionSources) : caseSourceService(stored), simulated ? mockInstructionArtifacts : caseArtifactStore);
+    } catch (error) { throw fatalSourceFailure(error); }
+  });
 }
 
 function collectionReader(caseId: string, language: string, simulated: boolean, stored: CaseRecord) {
@@ -104,18 +115,33 @@ function collectionReader(caseId: string, language: string, simulated: boolean, 
 // matches the quotes and files the evidence.
 async function fetchProposals(caseId: string, language: string, urls: string[], simulated: boolean): Promise<FetchedUrl[]> {
   "use step";
-  const stored = await getCase(caseId);
-  if (!stored) throw new Error("Shared case unavailable");
-  try { return await fetchProposedUrls(collectionReader(caseId, language, simulated, stored), urls); } catch (error) { throw fatalSourceFailure(error); }
+  return observeCaseStep(caseId, "fetch_proposals", { "sources.count": urls.length }, async () => {
+    const stored = await getCase(caseId);
+    if (!stored) throw new Error("Shared case unavailable");
+    try {
+      const fetched = await fetchProposedUrls(collectionReader(caseId, language, simulated, stored), urls, undefined, (url, state, duration, errorCode) => {
+        caseLog(caseId, state === "failed" || state === "error" ? "warn" : "info", `case.source.${state}`, {
+          "source.url_hash": sha256(url), "duration.ms": duration,
+          ...(errorCode && /^[\w.-]{1,80}$/.test(errorCode) ? { "error.code": errorCode } : {}),
+        });
+      });
+      const failed = fetched.filter((item) => item.error).length;
+      caseLog(caseId, failed ? "warn" : "info", "case.sources.fetched", { "sources.count": fetched.length, "sources.failed": failed });
+      return fetched;
+    } catch (error) { throw fatalSourceFailure(error); }
+  });
 }
 
 async function collectProposals(caseId: string, language: string, events: readonly RecordedEvent[], fetched: FetchedUrl[], simulated: boolean): Promise<CourtEvent[]> {
   "use step";
-  const stored = await getCase(caseId);
-  if (!stored) throw new Error("Shared case unavailable");
-  const collected = await collectEvidence(events, fetched, collectionReader(caseId, language, simulated, stored));
-  if (!simulated) for (const proposal of collected.rejected) { const record = rejectionRecord(proposal); await saveCaseAuditRecord(caseId, record.id, record); }
-  return collected.events;
+  return observeCaseStep(caseId, "file_proposals", { "sources.count": fetched.length }, async () => {
+    const stored = await getCase(caseId);
+    if (!stored) throw new Error("Shared case unavailable");
+    const collected = await collectEvidence(events, fetched, collectionReader(caseId, language, simulated, stored));
+    caseLog(caseId, collected.rejected.length ? "warn" : "info", "case.proposals.filed", { "proposals.rejected": collected.rejected.length, "evidence.filed": collected.events.filter((event) => event.type === "evidence_filed").length });
+    if (!simulated) for (const proposal of collected.rejected) { const record = rejectionRecord(proposal); await saveCaseAuditRecord(caseId, record.id, record); }
+    return collected.events;
+  });
 }
 
 async function collectProposedEvidence(caseId: string, language: string, events: readonly RecordedEvent[], simulated: boolean): Promise<CourtEvent[]> {
@@ -126,40 +152,48 @@ async function collectProposedEvidence(caseId: string, language: string, events:
 
 async function revokeShared(caseId: string) {
   "use step";
-  await revokeSandboxBindings(caseId);
+  await observeCaseStep(caseId, "revoke_sandboxes", {}, () => revokeSandboxBindings(caseId));
 }
 
 // Case files are in storage by now; the VMs and their snapshots are not needed.
 // Never fail a case over cleanup: snapshot retention and expiry bound the rest.
 async function disposeSandboxes(caseId: string) {
   "use step";
-  try { await deleteCaseSandboxes(caseId); }
-  catch (error) { console.warn("Could not delete case sandboxes:", error); }
+  await observeCaseStep(caseId, "dispose_sandboxes", {}, async () => {
+    try { await deleteCaseSandboxes(caseId); }
+    catch (error) { caseLog(caseId, "warn", "case.sandboxes.cleanup_failed", errorFields(error)); }
+  });
 }
 
 async function collect(caseId: string, submission: Submission, simulated: boolean, describer: CourtModel) {
   "use step";
-  const describe = !simulated && submission.kind === "image" ? imageDescriber(describer, submission.note, caseId) : undefined;
-  return collectEvidenceBase(caseId, submission, simulated, describe);
+  return observeCaseStep(caseId, "intake_collection", {}, async () => {
+    const describe = !simulated && submission.kind === "image" ? imageDescriber(describer, submission.note, caseId) : undefined;
+    return collectEvidenceBase(caseId, submission, simulated, describe);
+  });
 }
 
 async function determineLanguage(caseId: string, submission: Submission, context: SubmissionContext | undefined, simulated: boolean, model: CourtModel): Promise<string> {
   "use step";
-  const language = await resolveCaseLanguage(caseId, submission, context, simulated, undefined, model);
-  if (!submission.resolvedLanguage) await saveCaseLanguage(caseId, language);
-  return language;
+  return observeCaseStep(caseId, "detect_language", {}, async () => {
+    const language = await resolveCaseLanguage(caseId, submission, context, simulated, undefined, model);
+    if (!submission.resolvedLanguage) await saveCaseLanguage(caseId, language);
+    return language;
+  });
 }
 
 // Keep source processing separate from the paid court turn so a retry need not
 // repeat the analyst's model call.
 async function collectSources(caseId: string, events: CourtEvent[], language: string, translator: CourtModel): Promise<void> {
   "use step";
-  if (blobConfigured()) await saveContributedSources(caseId, events, language, liveContributionDeps(translator, caseId));
+  await observeCaseStep(caseId, "collect_sources", {}, async () => {
+    if (blobConfigured()) await saveContributedSources(caseId, events, language, liveContributionDeps(translator, caseId));
+  });
 }
 
 async function translateContributions(caseId: string, outcome: TurnOutcome, language: string, translator: CourtModel): Promise<TurnOutcome> {
   "use step";
-  return { ...outcome, events: await translateFiledEvidence(outcome.events, language, translatorFor(translator, caseId)) };
+  return observeCaseStep(caseId, "translate_contributions", {}, async () => ({ ...outcome, events: await translateFiledEvidence(outcome.events, language, translatorFor(translator, caseId)) }));
 }
 
 // case.jsonl translates the prompts of the case into its language. A few new
@@ -170,27 +204,29 @@ const MAX_PROMPT_TRANSLATION_STEPS = 50;
 
 async function translatePrompts(caseId: string): Promise<boolean> {
   "use step";
-  const stored = await getCase(caseId);
-  if (!blobConfigured() || !stored) return false;
-  const { language, cache, translate, modelId } = casePromptLocalization(stored);
-  const { missing } = await cachePromptTranslations(await getCaseAuditRecords(caseId), language, cache, translate, modelId, PROMPT_TRANSLATIONS_PER_STEP);
-  return missing > 0;
+  return observeCaseStep(caseId, "translate_prompts", {}, async () => {
+    const stored = await getCase(caseId);
+    if (!blobConfigured() || !stored) return false;
+    const { language, cache, translate, modelId } = casePromptLocalization(stored);
+    const { missing } = await cachePromptTranslations(await getCaseAuditRecords(caseId), language, cache, translate, modelId, PROMPT_TRANSLATIONS_PER_STEP);
+    caseLog(caseId, "info", "case.prompt_translations.progress", { "translations.remaining": missing });
+    return missing > 0;
+  });
 }
 
 async function archive(caseId: string): Promise<void> {
   "use step";
-  if (blobConfigured()) await archiveEvidence(caseId);
+  await observeCaseStep(caseId, "archive", {}, async () => { if (blobConfigured()) await archiveEvidence(caseId); });
 }
 
 // A missing cover never fails a case: the home page shows a placeholder instead.
 async function illustrate(caseId: string, simulated: boolean, models: CoverModels): Promise<void> {
   "use step";
   if (simulated) return;
-  try {
-    await illustrateCase(caseId, liveCoverDeps(models, caseId));
-  } catch (err) {
-    console.warn("Cover for case " + caseId + " failed:", err);
-  }
+  await observeCaseStep(caseId, "cover", {}, async () => {
+    try { await illustrateCase(caseId, liveCoverDeps(models, caseId)); }
+    catch (err) { caseLog(caseId, "warn", "case.cover.failed", errorFields(err)); }
+  });
 }
 
 async function play(
@@ -202,8 +238,11 @@ async function play(
   evidence?: EvidenceStepResult
 ) {
   "use step";
-  const outcome = await playTurn(caseId, docket, spec, record, attempt, evidence);
-  return linkEvidenceRun(outcome, evidence?.runId, docket.simulated, docket.models);
+  return observeCaseStep(caseId, "play_turn", { "turn.kind": spec.kind, "turn.seat": "counsel" in spec ? spec.counsel : "speaker" in spec ? spec.speaker : "judge", "turn.attempt": attempt }, async () => {
+    const outcome = await playTurn(caseId, docket, spec, record, attempt, evidence);
+    if (!outcome.done) caseLog(caseId, "warn", "case.turn.incomplete", { "turn.kind": spec.kind, "turn.attempt": attempt });
+    return linkEvidenceRun(outcome, evidence?.runId, docket.simulated, docket.models);
+  });
 }
 
 export function linkEvidenceRun(outcome: TurnOutcome, runId?: string, simulated = false, models: ModelConfig = DEFAULT_MODELS): TurnOutcome {
@@ -238,17 +277,29 @@ async function prepareEvidence(caseId: string, spec: TurnSpec, simulated: boolea
 // paid again when the workflow replays.
 async function answerQuick(caseId: string, submission: Submission, language: string, model: CourtModel, by: Counsel, attempt: number, simulated: boolean) {
   "use step";
-  return quickAnswer(caseId, submission, language, model, by, attempt, simulated ? simulatedQuickDependencies("answer") : undefined);
+  return observeCaseStep(caseId, "quick_answer", { "turn.seat": by, "turn.attempt": attempt }, async () => {
+    const result = await quickAnswer(caseId, submission, language, model, by, attempt, simulated ? simulatedQuickDependencies("answer") : undefined);
+    if ("error" in result) caseLog(caseId, "warn", "case.quick.failed", { "turn.kind": "answer", "turn.seat": by, "turn.attempt": attempt });
+    return result;
+  });
 }
 
 async function voteQuick(caseId: string, submission: Submission, language: string, model: CourtModel, by: Counsel, answer: QuickAnswer, attempt: number, retry: QuickFailure | undefined, simulated: boolean) {
   "use step";
-  return quickVote(caseId, submission, language, model, by, answer, attempt, retry, simulated ? simulatedQuickDependencies("vote") : undefined);
+  return observeCaseStep(caseId, "quick_vote", { "turn.seat": by, "turn.attempt": attempt }, async () => {
+    const result = await quickVote(caseId, submission, language, model, by, answer, attempt, retry, simulated ? simulatedQuickDependencies("vote") : undefined);
+    if ("error" in result) caseLog(caseId, "warn", "case.quick.failed", { "turn.kind": "vote", "turn.seat": by, "turn.attempt": attempt });
+    return result;
+  });
 }
 
 async function tiebreakQuick(caseId: string, submission: Submission, language: string, model: CourtModel, entries: QuickEntry[], attempt: number, simulated: boolean) {
   "use step";
-  return quickTiebreak(caseId, submission, language, model, entries, attempt, simulated ? simulatedQuickDependencies("tiebreak") : undefined);
+  return observeCaseStep(caseId, "quick_tiebreak", { "turn.attempt": attempt }, async () => {
+    const result = await quickTiebreak(caseId, submission, language, model, entries, attempt, simulated ? simulatedQuickDependencies("tiebreak") : undefined);
+    if ("error" in result) caseLog(caseId, "warn", "case.quick.failed", { "turn.kind": "tiebreak", "turn.attempt": attempt });
+    return result;
+  });
 }
 
 function describeError(err: unknown): string {
@@ -319,7 +370,7 @@ export async function courtSession(caseId: string): Promise<void> {
   } catch (err) {
     if (shared) {
       try { await revokeShared(caseId); }
-      catch (cleanupError) { console.warn("Could not revoke sandbox bindings:", cleanupError); }
+      catch { /* revokeShared logs its own error; cleanup must not hide the failure. */ }
       await disposeSandboxes(caseId);
     }
     await closeCase(caseId, "failed", describeError(err));

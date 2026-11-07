@@ -6,6 +6,9 @@ idempotent batches between rounds. Completed steps are replayed from the workflo
 journal; an interrupted seat attempt can run again, including its paid model and
 research calls.
 
+For case/run-correlated logs, workflow progress, Vercel metrics, and optional
+OpenTelemetry export, see [case processing observability](docs/observability.md).
+
 Admins can delete resolved or failed cases and their Postgres and Blob data;
 active cases cannot be deleted. A failed Blob cleanup leaves the case record for
 a retry, although some files may already have been deleted. Workflow journals
