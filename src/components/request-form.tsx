@@ -3,6 +3,7 @@
 import { startTransition, useActionState, useEffect, useId, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent, type KeyboardEvent } from "react";
 import { requestFactCheck, type RequestField, type RequestState } from "@/app/actions.ts";
 import type { CheckType } from "@/domain/court.ts";
+import { canIdentifyClaims, type CaseUser } from "@/lib/case-access.ts";
 
 // Quick comes first and is the default.
 const CHECKS: ReadonlyArray<{ id: CheckType; label: string; hint: string }> = [
@@ -49,7 +50,7 @@ const field =
   "w-full rounded-sm border border-rule bg-paper/80 px-4 py-3 text-base outline-none transition focus:border-celeste-deep focus:ring-2 focus:ring-celeste/30 aria-invalid:border-falso aria-invalid:ring-2 aria-invalid:ring-falso/20";
 const label = "mb-1.5 block text-sm font-medium text-ink";
 
-export function RequestForm() {
+export function RequestForm({ user }: { user?: CaseUser | null }) {
   const [kind, setKind] = useState<Kind>("text");
   const [check, setCheck] = useState<CheckType>("quick");
   const [text, setText] = useState("");
@@ -62,6 +63,8 @@ export function RequestForm() {
     language: uid + "-language",
     check: uid + "-check",
     checkHint: uid + "-check-hint",
+    identifyClaims: uid + "-identify-claims",
+    claimsHint: uid + "-claims-hint",
     text: uid + "-text",
     url: uid + "-url",
     linkNote: uid + "-link-note",
@@ -74,7 +77,7 @@ export function RequestForm() {
 
   // A client check wins over the last server answer; an error about a field of another kind is not shown.
   const shown = local ?? state;
-  const problem = shown.error && (!shown.field || shown.field === "language" || shown.field === "check" || FIELDS[kind].includes(shown.field)) ? shown : undefined;
+  const problem = shown.error && (!shown.field || shown.field === "language" || shown.field === "check" || shown.field === "identifyClaims" || FIELDS[kind].includes(shown.field)) ? shown : undefined;
   const invalid = (f: RequestField) => problem?.field === f || undefined;
   const describedBy = (f: RequestField, extra?: string) => [extra, problem?.field === f ? ids.error : undefined].filter(Boolean).join(" ") || undefined;
 
@@ -173,6 +176,13 @@ export function RequestForm() {
           ))}
         </div>
         <p id={ids.checkHint} className="mt-1 text-xs text-ink-soft">{CHECKS.find((c) => c.id === check)!.hint}</p>
+        {canIdentifyClaims(user) && <div hidden={check !== "quick"} className="mt-3">
+          <label htmlFor={ids.identifyClaims} className="flex cursor-pointer items-start gap-2 text-sm text-ink">
+            <input type="checkbox" id={ids.identifyClaims} name="identifyClaims" disabled={check !== "quick"} aria-invalid={invalid("identifyClaims")} aria-describedby={describedBy("identifyClaims", ids.claimsHint)} className="mt-0.5 size-4 accent-ink" />
+            Identificar afirmaciones independientes
+          </label>
+          <p id={ids.claimsHint} className="mt-1 text-xs text-ink-soft">El moderador separa hasta cinco afirmaciones; los analistas votan cada una y el contenido completo, sin debate. Puede tardar un poco más.</p>
+        </div>}
       </fieldset>
 
       <fieldset className="mt-5">

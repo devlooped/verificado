@@ -40,6 +40,10 @@ test("the quick diagram shows the independent vote, majority, tiebreak and failu
   assert.equal(region?.getAttribute("tabindex"), "0");
   for (const text of [
     "Los cuatro analistas investigan en paralelo",
+    "¿Identificar afirmaciones independientes?",
+    "separa hasta cinco afirmaciones",
+    "y cada afirmación, si se eligió",
+    "Por cada resultado:",
     "contenido completo con fundamentos",
     "Resultado por mayoría",
     "¿Hay al menos 3 votos?",
@@ -48,7 +52,7 @@ test("the quick diagram shows the independent vote, majority, tiebreak and failu
     "las respuestas y los votos, sin investigar",
     "Resultado con fundamento del moderador",
   ]) assert.ok(svg.textContent?.replace(/\s/g, "").includes(text.replace(/\s/g, "")), text);
-  for (const edge of ["E -- Sí --> F", "E -- No --> G", "G -- No --> H", "G -- Sí --> I", "J -- No --> H"]) {
+  for (const edge of ["O -- Sí --> P", "O -- No --> B", "P --> B", "E -- Sí --> F", "E -- No --> G", "G -- No --> H", "G -- Sí --> I", "J -- No --> H"]) {
     assert.ok(QUICK_PROCESS_DIAGRAM.includes(edge), edge);
   }
 });

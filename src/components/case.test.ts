@@ -299,3 +299,22 @@ test("a Quick check lists each analyst's answer with its cited pages, then the v
   assert.match(document.toString(), /Empieza el chequeo rápido/);
   assert.doesNotMatch(document.toString(), /afirmaciones a examinar|Empieza el debate/);
 });
+
+test("Quick individual votes are grouped with results, not with the researched answers", () => {
+  const input: CourtEvent[] = [
+    { type: "claims_entered", claims: [{ id: "A1", text: "Afirmación independiente", quote: "" }] },
+    ...COUNSEL.map((by): CourtEvent => ({ type: "quick_response", by, text: "Respuesta de " + by, sources: [] })),
+    ...COUNSEL.map((by): CourtEvent => ({ type: "vote", by, claimId: "A1", verdict: "verdadero", rationale: "Fundamento individual" })),
+    ...COUNSEL.map((by): CourtEvent => ({ type: "content_vote", by, verdict: "enganoso", rationale: "Fundamento global" })),
+    { type: "judgment", claimId: "A1", verdict: "verdadero", method: "consensus", reasoning: "" },
+    { type: "content_judgment", verdict: "enganoso", method: "consensus", reasoning: "" },
+    { type: "session_closed" },
+  ];
+  const { document } = parseHTML(render(input));
+  const sections = [...document.querySelectorAll('[data-fold-scope="section"]')];
+  const answers = sections.find((s) => s.querySelector("summary h3")?.textContent === "Respuestas")!;
+  const result = sections.find((s) => s.querySelector("summary h3")?.textContent === "Resultado")!;
+  assert.doesNotMatch(answers.textContent!, /Fundamento individual/);
+  assert.match(result.textContent!, /Fundamento individual/);
+  assert.match(result.textContent!, /4 votos por afirmación · 4 votos sobre el contenido completo/);
+});

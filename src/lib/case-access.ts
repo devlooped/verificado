@@ -15,6 +15,10 @@ export function canViewCaseCost(user: CaseUser | null | undefined): boolean {
   return !!user?.sub && Array.isArray(user.roles) && (user.roles.includes("Contrib") || user.roles.includes("Admin"));
 }
 
+export function canIdentifyClaims(user: CaseUser | null | undefined): boolean {
+  return !!user?.sub && Array.isArray(user.roles) && (user.roles.includes("Contrib") || user.roles.includes("Admin"));
+}
+
 export function canDeleteCase(user: CaseUser | null | undefined): boolean {
   return isAdmin(user);
 }

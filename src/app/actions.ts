@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { CHECK_TYPES, type Submission } from "@/domain/court.ts";
 import { auth0 } from "@/lib/auth0.ts";
-import { BETA_MESSAGE, canRequestCase, isAdmin } from "@/lib/case-access.ts";
+import { BETA_MESSAGE, canIdentifyClaims, canRequestCase, isAdmin } from "@/lib/case-access.ts";
 import { startCourtSession } from "@/lib/case-workflow.ts";
 import { deleteCaseBlobs } from "@/evidence/blob.ts";
 import { withSandboxCleanup } from "@/instruction/preparation.ts";
@@ -37,7 +37,7 @@ const RequestForm = z.discriminatedUnion("kind", [
   }),
 ]);
 
-export type RequestField = "text" | "url" | "note" | "image" | "language" | "check";
+export type RequestField = "text" | "url" | "note" | "image" | "language" | "check" | "identifyClaims";
 // The field names the input to fix, so the form can mark and focus it.
 export type RequestState = { error?: string; field?: RequestField };
 
@@ -51,6 +51,11 @@ export async function requestFactCheck(_prev: RequestState, formData: FormData):
   if (!language.success) return { error: language.error.issues[0]?.message, field: "language" };
   const check = z.enum(CHECK_TYPES, { error: "Elegí un tipo de chequeo válido." }).default("quick").safeParse(formData.get("check") ?? undefined);
   if (!check.success) return { error: check.error.issues[0]?.message, field: "check" };
+  const identifyClaims = z.literal("on", { error: "Elegí una opción de afirmaciones válida." }).optional().safeParse(formData.get("identifyClaims") ?? undefined);
+  if (!identifyClaims.success) return { error: identifyClaims.error.issues[0]?.message, field: "identifyClaims" };
+  if (check.data === "quick" && identifyClaims.data === "on" && !canIdentifyClaims(user)) {
+    return { error: "Identificar afirmaciones independientes requiere el rol Contrib o Admin.", field: "identifyClaims" };
+  }
   const parsed = RequestForm.safeParse(Object.fromEntries(formData));
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
@@ -67,6 +72,7 @@ export async function requestFactCheck(_prev: RequestState, formData: FormData):
   } else {
     submission = { ...input, language: language.data, check: check.data };
   }
+  if (check.data === "quick" && identifyClaims.data === "on") submission.identifyClaims = true;
   const id = await createNewCase(submission, image, user.sub);
   try {
     await startCourtSession(id);

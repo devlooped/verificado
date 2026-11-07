@@ -31,6 +31,21 @@ function render(input: CourtEvent[], record: CaseRecord = c) {
   return renderToStaticMarkup(createElement(CaseResult, { c: record, view: project(input) }));
 }
 
+test("a Quick check with independent claims displays their results and a separate overall vote", () => {
+  const quick: CaseRecord = { ...c, submission: { ...c.submission, check: "quick", identifyClaims: true } };
+  const input: CourtEvent[] = [...events.filter((e) => e.type !== "case_summary"),
+    ...COUNSEL.map((by): CourtEvent => ({ type: "content_vote", by, verdict: "enganoso", rationale: "Fundamento global de " + by })),
+    { type: "content_judgment", verdict: "enganoso", method: "consensus", reasoning: "" },
+  ];
+  const { document } = parseHTML(render(input, quick));
+  assert.match(document.querySelector("figure figcaption")!.textContent!, /Chequeo Rápido/);
+  assert.equal(document.querySelectorAll("[data-claim]").length, 2);
+  assert.ok(document.querySelector('[aria-label="Resultado del contenido completo: Engañoso"]'));
+  assert.ok(document.querySelector('[aria-label="Votos de los analistas sobre A1"]'));
+  assert.ok(document.querySelector('[aria-label="Votos de los analistas sobre el contenido"]'));
+  assert.match(document.querySelector("#case-claims-title")!.textContent!, /Afirmaciones/);
+});
+
 test("the result renders costs only when supplied, including cases with no recorded usage", () => {
   const view = project(events);
   const withoutCosts = renderToStaticMarkup(createElement(CaseResult, { c, view }));

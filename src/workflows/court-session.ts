@@ -5,9 +5,9 @@ import { playTurn } from "../court/play.ts";
 import { resolveCaseLanguage } from "../court/language.ts";
 import { holdSession } from "../court/procedure.ts";
 import { holdQuickSession, type QuickAnswer, type QuickEntry, type QuickFailure } from "../court/quick.ts";
-import { quickAnswer, quickTiebreak, quickVote, simulatedQuickDependencies } from "../court/quick-play.ts";
+import { quickAnswer, quickIdentifyClaims, quickTiebreak, quickVote, simulatedQuickDependencies } from "../court/quick-play.ts";
 import type { Docket, TurnOutcome, TurnSpec } from "../court/turns.ts";
-import { checkType, sharedPipeline, type CaseRecord, type Counsel, type CourtEvent, type RecordedEvent, type Submission, type SubmissionContext } from "../domain/court.ts";
+import { checkType, sharedPipeline, type CaseRecord, type Claim, type Counsel, type CourtEvent, type RecordedEvent, type Submission, type SubmissionContext } from "../domain/court.ts";
 import { languageRule } from "../domain/language.ts";
 import { collectEvidenceBase } from "../evidence/collect.ts";
 import { imageDescriber } from "../evidence/describe.ts";
@@ -282,28 +282,37 @@ async function prepareEvidence(caseId: string, spec: TurnSpec, simulated: boolea
 
 // A Quick check: one step per generation, so a completed paid answer is not
 // paid again when the workflow replays.
-async function answerQuick(caseId: string, submission: Submission, language: string, model: CourtModel, by: Counsel, attempt: number, simulated: boolean) {
+async function identifyQuick(caseId: string, submission: Submission, language: string, model: CourtModel, attempt: number, simulated: boolean) {
+  "use step";
+  return observeCaseStep(caseId, "quick_claims", { "turn.attempt": attempt }, async () => {
+    const result = await quickIdentifyClaims(caseId, submission, language, model, attempt, simulated ? simulatedQuickDependencies("claims") : undefined);
+    if ("error" in result) caseLog(caseId, "warn", "case.quick.failed", { "turn.kind": "claims", "turn.attempt": attempt });
+    return result;
+  });
+}
+
+async function answerQuick(caseId: string, submission: Submission, language: string, model: CourtModel, by: Counsel, attempt: number, simulated: boolean, claims?: readonly Claim[]) {
   "use step";
   return observeCaseStep(caseId, "quick_answer", { "turn.seat": by, "turn.attempt": attempt }, async () => {
-    const result = await quickAnswer(caseId, submission, language, model, by, attempt, simulated ? simulatedQuickDependencies("answer") : undefined);
+    const result = await quickAnswer(caseId, submission, language, model, by, attempt, simulated ? simulatedQuickDependencies("answer") : undefined, claims);
     if ("error" in result) caseLog(caseId, "warn", "case.quick.failed", { "turn.kind": "answer", "turn.seat": by, "turn.attempt": attempt });
     return result;
   });
 }
 
-async function voteQuick(caseId: string, submission: Submission, language: string, model: CourtModel, by: Counsel, answer: QuickAnswer, attempt: number, retry: QuickFailure | undefined, simulated: boolean) {
+async function voteQuick(caseId: string, submission: Submission, language: string, model: CourtModel, by: Counsel, answer: QuickAnswer, attempt: number, retry: QuickFailure | undefined, simulated: boolean, claim?: Claim) {
   "use step";
   return observeCaseStep(caseId, "quick_vote", { "turn.seat": by, "turn.attempt": attempt }, async () => {
-    const result = await quickVote(caseId, submission, language, model, by, answer, attempt, retry, simulated ? simulatedQuickDependencies("vote") : undefined);
+    const result = await quickVote(caseId, submission, language, model, by, answer, attempt, retry, simulated ? simulatedQuickDependencies("vote") : undefined, claim);
     if ("error" in result) caseLog(caseId, "warn", "case.quick.failed", { "turn.kind": "vote", "turn.seat": by, "turn.attempt": attempt });
     return result;
   });
 }
 
-async function tiebreakQuick(caseId: string, submission: Submission, language: string, model: CourtModel, entries: QuickEntry[], attempt: number, simulated: boolean) {
+async function tiebreakQuick(caseId: string, submission: Submission, language: string, model: CourtModel, entries: QuickEntry[], attempt: number, simulated: boolean, claim?: Claim) {
   "use step";
   return observeCaseStep(caseId, "quick_tiebreak", { "turn.attempt": attempt }, async () => {
-    const result = await quickTiebreak(caseId, submission, language, model, entries, attempt, simulated ? simulatedQuickDependencies("tiebreak") : undefined);
+    const result = await quickTiebreak(caseId, submission, language, model, entries, attempt, simulated ? simulatedQuickDependencies("tiebreak") : undefined, claim);
     if ("error" in result) caseLog(caseId, "warn", "case.quick.failed", { "turn.kind": "tiebreak", "turn.attempt": attempt });
     return result;
   });
@@ -329,15 +338,16 @@ export async function courtSession(caseId: string, latestPipeline = false): Prom
       efforts: { judge: effort(models.judge), counsel: { grok: effort(counsel.grok), gemini: effort(counsel.gemini), claude: effort(counsel.claude), chatgpt: effort(counsel.chatgpt) } },
     };
     if (checkType(submission) === "quick") {
-      // No intake, instruction or sandbox (nothing to revoke on failure): each
-      // analyst answers and votes.
+      // Optional claim identification, but no instruction or sandbox (nothing
+      // to revoke on failure): each analyst researches once and votes.
       shared = false;
       const language = await determineLanguage(caseId, submission, undefined, simulated, models.language);
       await holdQuickSession({
         submission, simulated, ...seats,
-        answer: (by, attempt) => answerQuick(caseId, submission, language, counsel[by], by, attempt, simulated),
-        vote: (by, answer, attempt, retry) => voteQuick(caseId, submission, language, counsel[by], by, answer, attempt, retry, simulated),
-        tiebreak: (entries, attempt) => tiebreakQuick(caseId, submission, language, models.judge, entries, attempt, simulated),
+        identify: (attempt) => identifyQuick(caseId, submission, language, models.judge, attempt, simulated),
+        answer: (by, attempt, claims) => submission.identifyClaims ? answerQuick(caseId, submission, language, counsel[by], by, attempt, simulated, claims) : answerQuick(caseId, submission, language, counsel[by], by, attempt, simulated),
+        vote: (by, answer, attempt, retry, claim) => claim ? voteQuick(caseId, submission, language, counsel[by], by, answer, attempt, retry, simulated, claim) : voteQuick(caseId, submission, language, counsel[by], by, answer, attempt, retry, simulated),
+        tiebreak: (entries, attempt, claim) => claim ? tiebreakQuick(caseId, submission, language, models.judge, entries, attempt, simulated, claim) : tiebreakQuick(caseId, submission, language, models.judge, entries, attempt, simulated),
         commit: (events: readonly RecordedEvent[]) => saveEvents(caseId, [...events]),
       });
       await illustrate(caseId, simulated, models);

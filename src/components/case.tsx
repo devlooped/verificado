@@ -363,7 +363,7 @@ function sectionsOf(events: readonly RecordedEvent[]): Section[] {
     else if ((e.type === "evidence_filed" || e.type === "instruction_completed") && key === "apertura") key = "instruccion";
     else if (e.type === "evidence_unified") key = "fuentes";
     else if (e.type === "floor_granted" || e.type === "statement") key = e.stage;
-    else if (e.type === "judgment" || e.type === "content_vote" || e.type === "content_judgment" || e.type === "session_closed") key = "resultado";
+    else if ((e.type === "vote" && key === "respuestas") || e.type === "judgment" || e.type === "content_vote" || e.type === "content_judgment" || e.type === "session_closed") key = "resultado";
     const last = sections.at(-1);
     if (last?.key === key) last.events.push(e);
     else sections.push({ key, events: [e] });
@@ -435,7 +435,7 @@ function summaryOf(section: Section, view: CaseView): string {
       return "Expediente común · " + plural(sources.length, "fuente", "fuentes") + " · " + plural(sources.filter((s) => s.excluded).length, "anulada", "anuladas");
     }
     case "resultado":
-      if (Object.keys(view.responses).length) return plural(count("content_vote"), "voto", "votos") + " sobre el contenido completo";
+      if (Object.keys(view.responses).length) return (count("vote") ? plural(count("vote"), "voto", "votos") + " por afirmación · " : "") + plural(count("content_vote"), "voto", "votos") + " sobre el contenido completo";
       return plural(count("judgment"), "resultado", "resultados");
     default: {
       const parts = [plural(count("statement"), "intervención", "intervenciones")];

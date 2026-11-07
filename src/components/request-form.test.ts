@@ -36,6 +36,31 @@ test("the check type defaults to Rápido, before Experto, with a hint for the ch
   assert.equal(document.getElementById(fieldset.getAttribute("aria-describedby")!)!.textContent, "Cada analista responde y vota; sin debate.");
 });
 
+test("independent claims are an accessible unchecked option inside the Quick check selector", () => {
+  const { document } = parseHTML(renderToStaticMarkup(createElement(RequestForm, { user: { sub: "user", roles: ["Contrib"] } })));
+  const option = document.querySelector<HTMLInputElement>('input[type="checkbox"][name="identifyClaims"]')!;
+  assert.ok(option);
+  assert.ok(!option.hasAttribute("checked"));
+  assert.ok(!option.hasAttribute("disabled"));
+  assert.equal(option.closest("fieldset")?.querySelector("legend")?.textContent, "Tipo de chequeo");
+  assert.equal(document.querySelector(`label[for="${option.id}"]`)?.textContent?.trim(), "Identificar afirmaciones independientes");
+  const hint = document.getElementById(option.getAttribute("aria-describedby")!)!;
+  assert.match(hint.textContent!, /cada una y el contenido completo, sin debate/);
+});
+
+test("independent claims are only rendered for authenticated Contrib or Admin roles", () => {
+  for (const roles of [["Contrib"], ["Admin"], ["reader", "Contrib"], ["Contrib", "Admin"]]) {
+    const { document } = parseHTML(renderToStaticMarkup(createElement(RequestForm, { user: { sub: "user", roles } })));
+    assert.ok(document.querySelector('[name="identifyClaims"]'));
+  }
+  for (const user of [undefined, null, { roles: ["Contrib"] }, { sub: "user" }, { sub: "user", roles: ["reader"] },
+    { sub: "user", roles: ["contrib"] }, { sub: "user", roles: ["admin"] }, { sub: "user", roles: "Admin" }, { sub: "user", roles: ["SuperAdmin"] }]) {
+    const { document } = parseHTML(renderToStaticMarkup(createElement(RequestForm, { user })));
+    assert.equal(document.querySelector('[name="identifyClaims"]'), null);
+    assert.ok(document.querySelector('input[name="check"][value="quick"]'), "ordinary Quick checks stay available");
+  }
+});
+
 test("the text counter says what is missing below the minimum, else how much is used", () => {
   assert.deepEqual(textCount(""), { label: "0 / 6.000", short: false });
   assert.deepEqual(textCount("  corto  "), { label: "Faltan 15 caracteres", short: true });

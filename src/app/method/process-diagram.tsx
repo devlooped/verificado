@@ -55,11 +55,14 @@ export const PROCESS_DIAGRAM = `flowchart TD
 
 export const QUICK_PROCESS_DIAGRAM = `flowchart TD
   accTitle: El proceso de un chequeo rápido
-  accDescr: Los cuatro analistas investigan y votan el contenido completo en paralelo. Tres votos coincidentes deciden; con al menos tres votos sin mayoría, el moderador desempata sin investigar. Con menos de tres votos o si falla el desempate no hay resultado y un administrador puede reintentar el caso.
-  A["Se presenta un texto, enlace o imagen"] --> B["Los cuatro analistas investigan en paralelo<br/>con las herramientas de sus proveedores"]
-  B --> C["Cada analista responde y vota<br/>el contenido completo con fundamentos"]
+  accDescr: Opcionalmente el moderador identifica afirmaciones independientes antes de la investigación. Los cuatro analistas investigan y votan el contenido completo y, si se eligió, cada afirmación en paralelo. Para cada resultado, tres votos coincidentes deciden; con al menos tres votos sin mayoría, el moderador desempata sin investigar. Con menos de tres votos o si falla el desempate no hay resultado y un administrador puede reintentar el caso.
+  A["Se presenta un texto, enlace o imagen"] --> O{"¿Identificar afirmaciones independientes?"}
+  O -- Sí --> P["El moderador lee el material<br/>y separa hasta cinco afirmaciones"]
+  O -- No --> B["Los cuatro analistas investigan en paralelo<br/>con las herramientas de sus proveedores"]
+  P --> B
+  B --> C["Cada analista responde y vota<br/>el contenido completo con fundamentos<br/>y cada afirmación, si se eligió"]
   C --> D["Se registran las respuestas, las citas<br/>de los proveedores, los votos y las ausencias"]
-  D --> E{"¿Hay 3 votos coincidentes?"}
+  D --> E{"Por cada resultado:<br/>¿Hay 3 votos coincidentes?"}
   E -- Sí --> F["Resultado por mayoría"]
   E -- No --> G{"¿Hay al menos 3 votos?"}
   G -- No --> H["Sin resultado: un administrador<br/>puede reintentar el caso"]

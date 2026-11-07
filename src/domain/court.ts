@@ -77,7 +77,7 @@ export type Submission = (
   | { kind: "text"; text: string }
   | { kind: "link"; url: string; note?: string }
   | { kind: "image"; mimeType: string; note?: string }
-) & { language?: CaseLanguageChoice; resolvedLanguage?: string; check?: CheckType };
+) & { language?: CaseLanguageChoice; resolvedLanguage?: string; check?: CheckType; identifyClaims?: boolean };
 
 // Absent on cases recorded before check types existed: they were Expert.
 export function checkType(s: Submission): CheckType {

@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { COUNSEL, type Counsel, type RecordedEvent, type Verdict } from "../domain/court.ts";
+import { COUNSEL, project, type Claim, type Counsel, type RecordedEvent, type Verdict } from "../domain/court.ts";
 import { languageRule } from "../domain/language.ts";
-import { holdQuickSession, QUICK_VOTE_REQUEST, quickPrompt, quickTiebreakPrompt, quickVoteMessages, type QuickAnswer, type QuickBench, type QuickDecision, type QuickEntry, type QuickFailure, type QuickVote } from "./quick.ts";
+import { holdQuickSession, QUICK_VOTE_REQUEST, quickClaimsPrompt, quickClaimsSchema, quickPrompt, quickTiebreakPrompt, quickVoteMessages, type QuickAnswer, type QuickBench, type QuickClaims, type QuickDecision, type QuickEntry, type QuickFailure, type QuickVote } from "./quick.ts";
 
 const MODELS = { judge: "spacexai/grok-4.7", counsel: { grok: "spacexai/grok-4.7", gemini: "google/gemini-4-argon", claude: "anthropic/claude-opus-5.5", chatgpt: "openai/gpt-6.1-sol" } };
 const AT = "2026-11-07T12:00:00.000Z";
 
 type Script = {
+  identify?: Array<QuickClaims | QuickFailure>;
+  claimVotes?: Record<string, Partial<Record<Counsel, Array<QuickVote | QuickFailure>>>>;
   answers?: Partial<Record<Counsel, Array<QuickAnswer | QuickFailure>>>;
   votes?: Partial<Record<Counsel, Array<QuickVote | QuickFailure>>>;
   tiebreak?: Array<QuickDecision | QuickFailure>;
@@ -18,29 +20,41 @@ function makeBench(script: Script) {
   const calls: string[] = [];
   const retries: Array<{ by: Counsel; retry?: QuickFailure }> = [];
   const tiebreaks: QuickEntry[][] = [];
+  const targets: Array<string | undefined> = [];
+  const researchClaims: Array<readonly Claim[]> = [];
   const bench: QuickBench = {
     submission: { kind: "text", text: "Según el INDEC, la pobreza bajó al 31,6 % en el primer semestre de 2026.", check: "quick" },
     models: MODELS,
-    answer: async (by, attempt) => {
+    identify: async (attempt) => {
+      calls.push(`identify:${attempt}`);
+      return script.identify?.[attempt] ?? { claims: CLAIMS, at: AT };
+    },
+    answer: async (by, attempt, claims) => {
       calls.push(`answer:${by}:${attempt}`);
+      researchClaims.push(claims ?? []);
       return script.answers?.[by]?.[attempt] ?? { text: "Respuesta de " + by, sources: [{ url: "https://www.indec.gob.ar/" + by }], at: AT };
     },
-    vote: async (by, answer, attempt, retry) => {
-      calls.push(`vote:${by}:${attempt}`);
+    vote: async (by, answer, attempt, retry, claim) => {
+      calls.push(`vote:${by}:${attempt}${claim ? ":" + claim.id : ""}`);
       retries.push({ by, retry });
       assert.equal(answer.text.startsWith("Respuesta"), true);
-      return script.votes?.[by]?.[attempt] ?? { verdict: "falso", rationale: "Fundamento suficiente del voto.", at: AT };
+      return (claim ? script.claimVotes?.[claim.id]?.[by]?.[attempt] : script.votes?.[by]?.[attempt]) ?? { verdict: "falso", rationale: "Fundamento suficiente del voto.", at: AT };
     },
-    tiebreak: async (entries, attempt) => {
+    tiebreak: async (entries, attempt, claim) => {
       calls.push(`tiebreak:${attempt}`);
       tiebreaks.push(entries);
+      targets.push(claim?.id);
       return script.tiebreak?.[attempt] ?? { verdict: "enganoso", reasoning: "Las respuestas muestran una cifra fuera de contexto.", at: AT };
     },
     commit: async (batch) => void events.push(...batch),
   };
-  return { bench, events, calls, retries, tiebreaks };
+  return { bench, events, calls, retries, tiebreaks, targets, researchClaims };
 }
 
+const CLAIMS: Claim[] = [
+  { id: "A1", quote: "La pobreza bajó.", text: "La pobreza bajó en el primer semestre de 2026." },
+  { id: "A2", quote: "La inflación subió.", text: "La inflación subió en el primer semestre de 2026." },
+];
 const vote = (verdict: Verdict): QuickVote => ({ verdict, rationale: "Fundamento suficiente del voto.", at: AT });
 const EXPERT_EVENTS = new Set(["claims_entered", "instruction_opened", "evidence_filed", "evidence_unified", "floor_granted", "statement", "objection", "vote", "judgment", "case_summary"]);
 
@@ -157,4 +171,108 @@ test("the tie-break prompt holds the content, each answer and vote, and no tools
   assert.match(text, /FACT CHECK: Dato a chequear\./);
   assert.match(text, /## Grok\nAnswer:\nEs falso\.\nVote: falso\. Otro dato\./);
   assert.match(text, /## Claude\nNo answer\.\nNo vote\./);
+});
+
+test("optional claims are identified first, researched once per analyst, and voted separately from the content", async () => {
+  const { bench, events, calls, researchClaims, targets } = makeBench({ claimVotes: { A1: Object.fromEntries(COUNSEL.map((by) => [by, [vote("verdadero")]])) } });
+  bench.submission.identifyClaims = true;
+  await holdQuickSession(bench);
+  assert.equal(calls[0], "identify:0");
+  assert.equal(calls.filter((c) => c.startsWith("answer:")).length, 4);
+  assert.deepEqual(researchClaims, COUNSEL.map(() => CLAIMS));
+  assert.equal(calls.filter((c) => c.startsWith("vote:")).length, 12);
+  assert.deepEqual(events.slice(0, 2).map((e) => e.type), ["session_opened", "claims_entered"]);
+  assert.equal(events.filter((e) => e.type === "vote").length, 8);
+  assert.equal(events.filter((e) => e.type === "content_vote").length, 4);
+  const view = project(events);
+  assert.deepEqual(view.claims.map((c) => [c.id, c.judgment?.verdict]), [["A1", "verdadero"], ["A2", "falso"]]);
+  assert.equal(view.contentJudgment?.verdict, "falso");
+  assert.equal(view.closed, true);
+  assert.deepEqual(targets, []);
+  assert.deepEqual(events.map((e) => e.seq), events.map((_, i) => i + 1));
+  assert.ok(!events.some((e) => ["instruction_opened", "evidence_filed", "statement", "case_summary"].includes(e.type)));
+});
+
+test("claim and content tie-breaks receive only their own votes, without mixing outcomes", async () => {
+  const { bench, events, targets, tiebreaks } = makeBench({
+    claimVotes: { A1: { grok: [vote("verdadero")], gemini: [vote("verdadero")] } },
+    votes: { grok: [vote("no_verificable")], claude: [vote("no_verificable")] },
+  });
+  bench.submission.identifyClaims = true;
+  await holdQuickSession(bench);
+  assert.deepEqual(targets, ["A1", undefined]);
+  assert.deepEqual(tiebreaks[0].map((e) => e.vote?.verdict), ["verdadero", "verdadero", "falso", "falso"]);
+  assert.deepEqual(tiebreaks[1].map((e) => e.vote?.verdict), ["no_verificable", "falso", "no_verificable", "falso"]);
+  assert.deepEqual(project(events).claims.map((c) => c.judgment?.method), ["judge", "consensus"]);
+  assert.equal(project(events).contentJudgment?.method, "judge");
+});
+
+test("claim identification retries once and fails before any analyst is called if both attempts fail", async () => {
+  const retried = makeBench({ identify: [{ error: "timeout" }] });
+  retried.bench.submission.identifyClaims = true;
+  await holdQuickSession(retried.bench);
+  assert.deepEqual(retried.calls.slice(0, 2), ["identify:0", "identify:1"]);
+  const broken = makeBench({ identify: [{ error: "timeout" }, { error: "bad output" }] });
+  broken.bench.submission.identifyClaims = true;
+  await assert.rejects(holdQuickSession(broken.bench), /no identificó/);
+  assert.deepEqual(broken.calls, ["identify:0", "identify:1"]);
+  assert.deepEqual(broken.events.map((e) => e.type), ["session_opened"]);
+});
+
+test("a bad claim vote retries independently and an absent claim voter still votes on the whole", async () => {
+  const { bench, events, calls } = makeBench({ claimVotes: { A1: {
+    grok: [{ verdict: "falso", rationale: "corto", at: AT }],
+    claude: [{ error: "bad output" }, { error: "bad again" }],
+  } } });
+  bench.submission.identifyClaims = true;
+  await holdQuickSession(bench);
+  assert.ok(calls.includes("vote:grok:1:A1"));
+  assert.ok(calls.includes("vote:claude:0:A2"));
+  assert.ok(calls.includes("vote:claude:0"));
+  assert.equal(project(events).claims[0].votes.claude, undefined);
+  assert.equal(Object.keys(project(events).contentVotes).length, 4);
+  assert.ok(events.some((e) => e.type === "absence" && e.by === "claude" && e.stage === "closing"));
+});
+
+test("a claim with fewer than three votes fails even when the content has four votes", async () => {
+  const { bench, events, targets } = makeBench({ claimVotes: { A1: {
+    grok: [{ error: "A1 failed" }, { error: "A1 failed" }], gemini: [{ error: "A1 failed" }, { error: "A1 failed" }],
+  }, A2: { grok: [{ error: "A2 failed" }, { error: "A2 failed" }] } } });
+  bench.submission.identifyClaims = true;
+  await assert.rejects(holdQuickSession(bench), /Menos de tres.*para A1.*Grok: A1 failed.*Gemini: A1 failed/);
+  assert.equal(events.filter((e) => e.type === "content_vote").length, 4);
+  assert.equal(project(events).closed, false);
+  assert.deepEqual(targets, []);
+});
+
+test("no factual claims keeps the global quick check, and the option off never calls identification", async () => {
+  const empty = makeBench({ identify: [{ claims: [], at: AT }] });
+  empty.bench.submission.identifyClaims = true;
+  await holdQuickSession(empty.bench);
+  assert.equal(empty.events.filter((e) => e.type === "vote").length, 0);
+  assert.equal(project(empty.events).contentJudgment?.verdict, "falso");
+  const off = makeBench({});
+  off.bench.submission.identifyClaims = false;
+  await holdQuickSession(off.bench);
+  assert.ok(!off.calls.some((c) => c.startsWith("identify:")));
+});
+
+test("claims prompts cover independent findings, targeted votes and tie-breaks, and bounded extraction", () => {
+  const submission = { kind: "text" as const, text: "La pobreza bajó. La inflación subió." };
+  const intake = quickClaimsPrompt(submission, "en");
+  assert.ok(intake.system.startsWith(languageRule("en")));
+  assert.match(intake.system, /without deciding whether they are true/);
+  assert.match(intake.system, /do not research beyond/);
+  const prompt = quickPrompt(submission, "es", undefined, CLAIMS);
+  assert.match(prompt.system, /each.*claims independently/);
+  assert.match(String(prompt.messages.at(-1)?.content), /A1.*A2/);
+  const messages = quickVoteMessages(prompt.messages, "Respuesta", undefined, CLAIMS[0]);
+  assert.match(String(messages.at(-1)?.content), /ONLY.*claim.*A1/s);
+  const retried = quickVoteMessages(prompt.messages, "Respuesta", { error: "too short" }, CLAIMS[0]);
+  assert.match(String(retried.at(-1)?.content), /ONLY claim A1/);
+  const tiebreak = quickTiebreakPrompt(submission, "es", [], undefined, CLAIMS[1]);
+  assert.match(tiebreak.system, /ONLY for that claim/);
+  assert.match(JSON.stringify(tiebreak.messages), /ONLY for this claim.*A2/);
+  assert.equal(quickClaimsSchema.safeParse({ claims: [] }).success, true);
+  assert.equal(quickClaimsSchema.safeParse({ claims: Array(6).fill(CLAIMS[0]).map(({ id: _id, ...claim }) => claim) }).success, false);
 });

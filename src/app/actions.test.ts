@@ -107,3 +107,59 @@ test("case requests reject unknown check types before touching storage", async (
   assert.deepEqual(await requestFactCheck({}, form), { error: "Elegí un tipo de chequeo válido.", field: "check" });
   assert.equal(query.mock.callCount(), 0);
 });
+
+test("claim identification rejects malformed values before touching storage", async (t) => {
+  t.mock.method(auth0, "getSession", async () => ({ user: { sub: "daniel", email: "daniel@cazzulino.com", email_verified: true } }) as Awaited<ReturnType<typeof auth0.getSession>>);
+  const query = t.mock.method(Pool.prototype, "query", () => { throw new Error("unexpected database access"); });
+  const form = new FormData();
+  form.set("kind", "text");
+  form.set("text", "Una afirmación suficientemente larga para pedir un chequeo.");
+  form.set("identifyClaims", "yes");
+  assert.deepEqual(await requestFactCheck({}, form), { error: "Elegí una opción de afirmaciones válida.", field: "identifyClaims" });
+  assert.equal(query.mock.callCount(), 0);
+});
+
+test("a forged Quick claim option is denied without an exact Contrib or Admin role before storage", async (t) => {
+  let roles: unknown;
+  t.mock.method(auth0, "getSession", async () => ({ user: { sub: "daniel", email: "daniel@cazzulino.com", email_verified: true, roles } }) as unknown as Awaited<ReturnType<typeof auth0.getSession>>);
+  const query = t.mock.method(Pool.prototype, "query", () => { throw new Error("unexpected database access"); });
+  const form = new FormData();
+  form.set("kind", "text");
+  form.set("text", "Una afirmación suficientemente larga para pedir un chequeo.");
+  form.set("check", "quick");
+  form.set("identifyClaims", "on");
+  for (const value of [undefined, [], ["reader"], ["contrib"], ["admin"], ["SuperAdmin"], "Contrib", [null]]) {
+    roles = value;
+    assert.deepEqual(await requestFactCheck({}, form), { error: "Identificar afirmaciones independientes requiere el rol Contrib o Admin.", field: "identifyClaims" });
+  }
+  assert.equal(query.mock.callCount(), 0);
+});
+
+test("the submission stores claim identification only when a Quick request opts in", async (t) => {
+  let roles: readonly string[] = [];
+  t.mock.method(auth0, "getSession", async () => ({ user: { sub: "daniel", email: "daniel@cazzulino.com", email_verified: true, roles } }) as unknown as Awaited<ReturnType<typeof auth0.getSession>>);
+  const original = process.env.DATABASE_URL;
+  process.env.DATABASE_URL = "postgres://example.invalid/test";
+  t.after(() => { if (original === undefined) delete process.env.DATABASE_URL; else process.env.DATABASE_URL = original; });
+  t.mock.method(Pool.prototype, "query", (async () => ({ rows: [], rowCount: 0 })) as unknown as typeof Pool.prototype.query);
+  const submissions: Record<string, unknown>[] = [];
+  const stop = new Error("Stop after observing submission; do not start a real workflow");
+  t.mock.method(Pool.prototype, "connect", (async () => ({
+    query: async (sql: string, values?: unknown[]) => {
+      if (sql.startsWith("INSERT INTO cases")) { submissions.push(JSON.parse(values![2] as string)); throw stop; }
+      return { rows: [] };
+    },
+    release: () => {},
+  })) as unknown as typeof Pool.prototype.connect);
+  for (const [check, optIn, assignedRoles] of [[undefined, true, ["Contrib"]], ["quick", true, ["Admin"]], ["quick", false, []], ["expert", true, []], ["quick", true, ["reader", "Contrib"]]] as const) {
+    roles = assignedRoles;
+    const form = new FormData();
+    form.set("kind", "text");
+    form.set("text", "Una afirmación suficientemente larga para pedir un chequeo.");
+    if (check) form.set("check", check);
+    if (optIn) form.set("identifyClaims", "on");
+    await assert.rejects(requestFactCheck({}, form), stop);
+    assert.equal(submissions.at(-1)?.identifyClaims, optIn && check !== "expert" ? true : undefined);
+    assert.equal(submissions.at(-1)?.check, check ?? "quick");
+  }
+});

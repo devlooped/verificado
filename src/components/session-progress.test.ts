@@ -54,3 +54,14 @@ test("a queued case shows no current stage", () => {
   assert.equal(document.querySelector('[aria-current="step"]'), null);
   assert.match(document.toString(), /en espera/);
 });
+
+test("optional Quick claims add identification before answers and individual votes advance to results", () => {
+  assert.equal(quickStage([], true), 0);
+  assert.equal(quickStage([claims], true), 1);
+  assert.equal(quickStage([claims, { type: "vote" }], true), 2);
+  const render = (events: CourtEvent[], queued = false) => parseHTML(renderToStaticMarkup(createElement(SessionProgress, { events, queued, check: "quick", identifyClaims: true }))).document;
+  assert.match(render([]).querySelector('[role="status"]')!.textContent!, /Etapa 1 de 3: Afirmaciones/);
+  assert.match(render([]).toString(), /moderador está identificando/);
+  assert.match(render([claims]).querySelector('[role="status"]')!.textContent!, /Etapa 2 de 3: Respuestas/);
+  assert.equal(render([], true).querySelector('[aria-current="step"]'), null);
+});

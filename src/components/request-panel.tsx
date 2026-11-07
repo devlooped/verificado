@@ -76,7 +76,7 @@ export function RequestPanel() {
           <p className="mt-5 text-sm text-ink-soft">Cargando…</p>
         ) : canRequestCase(user) ? (
           // A new page starts a new form: after a request is sent, the next one starts empty.
-          <RequestForm key={pathname} />
+          <RequestForm key={pathname} user={user} />
         ) : (
           <BetaNotice signedIn={!!user?.sub} />
         )}
