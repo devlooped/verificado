@@ -47,8 +47,7 @@ test("the quick diagram shows the independent vote, majority, tiebreak and failu
     "contenido completo con fundamentos",
     "Resultado por mayoría",
     "¿Hay al menos 3 votos?",
-    "Sin resultado: un administrador",
-    "puede reintentar el caso",
+    "Sin resultado",
     "las respuestas y los votos, sin investigar",
     "Resultado con fundamento del moderador",
   ]) assert.ok(svg.textContent?.replace(/\s/g, "").includes(text.replace(/\s/g, "")), text);
@@ -59,6 +58,7 @@ test("the quick diagram shows the independent vote, majority, tiebreak and failu
 
 test("the process diagram follows the four possible results on the method page", () => {
   const page = parseHTML(renderToStaticMarkup(createElement(MethodPage))).document;
+  assert.doesNotMatch(page.documentElement.textContent ?? "", /reintent|administrador|\badmin\b|\bcontrib\b/i);
   const sections = [...page.querySelectorAll("main section, section")];
   const results = sections.findIndex((section) => section.id === "resultados");
   const process = sections.findIndex((section) => section.id === "proceso");
