@@ -21,7 +21,7 @@ import type { EvidenceSeat, EvidenceStage } from "../evidence/schema.ts";
 import { closeCase, openCase, saveEvents } from "./steps.ts";
 import { getCase, getCaseAuditRecords, getImage, recordCaseToolActivity, revokeSandboxBindings, saveCaseAuditRecord, saveCaseLanguage, saveCaseModels } from "../store.ts";
 import { collectEvidence, fetchProposedUrls, rejectionRecord, type FetchedUrl } from "../instruction/collection.ts";
-import { COLLECTION_BATCH, proposedUrls } from "../instruction/proposed-urls.ts";
+import { COLLECTION_BATCH, collectProposedBatches, proposedUrls } from "../instruction/proposed-urls.ts";
 import { collectInstruction } from "../instruction/intake.ts";
 import { fatalSourceFailure, liveSourceDependencies, SourceService } from "../instruction/sources.ts";
 import { sourceDownloader } from "../instruction/research.ts";
@@ -73,7 +73,7 @@ async function advanceShared(caseId: string, docket: Docket, spec: TurnSpec, rec
     try {
       outcome = await advanceSharedTurn(caseId, docket, spec, record, attempt, docket.simulated ? {
         record: stored, reader: new SourceService(caseId, docket.language!, mockInstructionSources), artifacts: mockInstructionArtifacts,
-        model: createMockSeat({ spec, record, submission: docket.submission, shared: true, native: stored.pipelineVersion === 3 }, false).model,
+        model: createMockSeat({ spec, record, submission: docket.submission, shared: true, native: stored.pipelineVersion === 3 || stored.pipelineVersion === 4 || stored.pipelineVersion === 5 }, false).model,
         prepare: async () => "SIMULACIÓN LOCAL: Análisis preparatorio ficticio; no agrega pruebas.", worker: mockResearchWorker,
         audit: async () => {}, activity: recordCaseToolActivity,
       } : undefined);
@@ -111,11 +111,12 @@ function collectionReader(caseId: string, language: string, simulated: boolean, 
   return simulated ? new SourceService(caseId, language, mockInstructionSources) : caseSourceService(stored);
 }
 
-// Pipeline 3 collection: a few proposed URLs per step, then one step that
+// Native collection: a few proposed URLs per step, then one step that
 // matches the quotes and files the evidence.
-async function fetchProposals(caseId: string, language: string, urls: string[], simulated: boolean): Promise<FetchedUrl[]> {
+async function fetchProposals(caseId: string, language: string, urls: string[], simulated: boolean, batch?: number, batches?: number): Promise<FetchedUrl[]> {
   "use step";
-  return observeCaseStep(caseId, "fetch_proposals", { "sources.count": urls.length }, async () => {
+  const batchAttributes: Record<string, number> = batch === undefined ? {} : { "sources.batch": batch, "sources.batches": batches! };
+  return observeCaseStep(caseId, "fetch_proposals", { "sources.count": urls.length, ...batchAttributes }, async () => {
     const stored = await getCase(caseId);
     if (!stored) throw new Error("Shared case unavailable");
     try {
@@ -126,7 +127,7 @@ async function fetchProposals(caseId: string, language: string, urls: string[], 
         });
       });
       const failed = fetched.filter((item) => item.error).length;
-      caseLog(caseId, failed ? "warn" : "info", "case.sources.fetched", { "sources.count": fetched.length, "sources.failed": failed });
+      caseLog(caseId, failed ? "warn" : "info", "case.sources.fetched", { ...batchAttributes, "sources.count": fetched.length, "sources.failed": failed });
       return fetched;
     } catch (error) { throw fatalSourceFailure(error); }
   });
@@ -144,9 +145,15 @@ async function collectProposals(caseId: string, language: string, events: readon
   });
 }
 
-async function collectProposedEvidence(caseId: string, language: string, events: readonly RecordedEvent[], simulated: boolean): Promise<CourtEvent[]> {
-  const urls = proposedUrls(events), fetched: FetchedUrl[] = [];
-  for (let start = 0; start < urls.length; start += COLLECTION_BATCH) fetched.push(...await fetchProposals(caseId, language, urls.slice(start, start + COLLECTION_BATCH), simulated));
+async function collectProposedEvidence(caseId: string, language: string, events: readonly RecordedEvent[], simulated: boolean, progress?: (event: Extract<CourtEvent, { type: "source_collection_started" | "source_batch_started" | "source_batch_completed" }>) => Promise<void>, showUrls = false): Promise<CourtEvent[]> {
+  let fetched: FetchedUrl[];
+  if (progress) fetched = await collectProposedBatches(events, (urls, batch, batches) => fetchProposals(caseId, language, urls, simulated, batch, batches), progress, showUrls);
+  else {
+    // Keep version 3's workflow step sequence unchanged for replay.
+    const urls = proposedUrls(events);
+    fetched = [];
+    for (let start = 0; start < urls.length; start += COLLECTION_BATCH) fetched.push(...await fetchProposals(caseId, language, urls.slice(start, start + COLLECTION_BATCH), simulated));
+  }
   return collectProposals(caseId, language, events, fetched, simulated);
 }
 
@@ -307,11 +314,12 @@ function describeError(err: unknown): string {
   return message.slice(0, 500);
 }
 
-export async function courtSession(caseId: string): Promise<void> {
+export async function courtSession(caseId: string, latestPipeline = false): Promise<void> {
   "use workflow";
   let shared = false;
   try {
-    const { submission, today, simulated, pipelineVersion } = await openCase(caseId);
+    // Preserve the original step invocation for already-running workflows.
+    const { submission, today, simulated, pipelineVersion } = latestPipeline ? await openCase(caseId, true) : await openCase(caseId);
     shared = sharedPipeline(pipelineVersion);
     const models = await configuredModels(caseId, shared);
     const counsel = counselModels(models);
@@ -357,7 +365,7 @@ export async function courtSession(caseId: string): Promise<void> {
       },
       commit: (events: readonly RecordedEvent[]) => saveEvents(caseId, [...events]),
       ...(shared ? { settle: (events: readonly RecordedEvent[]) => settleShared(caseId, language, events, simulated) } : {}),
-      ...(pipelineVersion === 3 ? { collect: (events: readonly RecordedEvent[]) => collectProposedEvidence(caseId, language, events, simulated) } : {}),
+      ...(pipelineVersion === 3 || pipelineVersion === 4 || pipelineVersion === 5 ? { collect: (events: readonly RecordedEvent[], progress: (event: Extract<CourtEvent, { type: "source_collection_started" | "source_batch_started" | "source_batch_completed" }>) => Promise<void>) => collectProposedEvidence(caseId, language, events, simulated, pipelineVersion === 3 ? undefined : progress, pipelineVersion === 5) } : {}),
     });
     await illustrate(caseId, simulated, models);
     if (shared && !simulated) for (let step = 0; step < MAX_PROMPT_TRANSLATION_STEPS && await translatePrompts(caseId); step++);

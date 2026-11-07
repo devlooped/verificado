@@ -80,6 +80,29 @@ const judgeScript: Script = (prompt, tools) => {
   return [];
 };
 
+test("collection progress is committed incrementally before evidence and source review", async () => {
+  const { bench, events } = makeBench({ judge: judgeScript, grok: counsel("grok", {}), gemini: counsel("gemini", {}), claude: counsel("claude", {}), chatgpt: counsel("chatgpt", {}) });
+  bench.collect = async (record, progress) => {
+    const snapshotLength = record.length;
+    await progress({ type: "source_collection_started", total: 1, batches: 1 });
+    assert.equal(events.at(-1)?.type, "source_collection_started");
+    await progress({ type: "source_batch_completed", batch: 1, batches: 1, count: 1, completed: 1, total: 1, failed: 0 });
+    assert.equal(events.at(-1)?.type, "source_batch_completed");
+    assert.equal(record.length, snapshotLength, "progress does not mutate the collector's input");
+    return [{ type: "evidence_unified", sources: [] }];
+  };
+  const play = bench.play;
+  bench.play = async (spec, record, attempt) => {
+    if (spec.kind === "statement") throw new Error("stop after collection");
+    return play(spec, record, attempt);
+  };
+  await assert.rejects(holdSession(bench), /stop after collection/);
+  const start = events.findIndex((e) => e.type === "source_collection_started");
+  assert.equal(events[start + 1]?.type, "source_batch_completed");
+  assert.equal(events[start + 2]?.type, "evidence_unified");
+  assert.deepEqual(events.map((e) => e.seq), events.map((_, i) => i + 1));
+});
+
 test("settlement is committed after source decisions and before instruction closes", async () => {
   const { bench, events } = makeBench({ judge: judgeScript, grok: counsel("grok", { A1: "verdadero", A2: "verdadero" }), gemini: counsel("gemini", { A1: "verdadero", A2: "verdadero" }), claude: counsel("claude", { A1: "verdadero", A2: "verdadero" }), chatgpt: counsel("chatgpt", { A1: "verdadero", A2: "verdadero" }) });
   bench.settle = async (record) => {

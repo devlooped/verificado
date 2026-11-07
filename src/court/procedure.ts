@@ -11,9 +11,9 @@ export interface Bench {
   // Persists newly recorded events; must be idempotent by seq.
   commit(events: readonly RecordedEvent[]): Promise<void>;
   settle?(events: readonly RecordedEvent[]): Promise<Extract<CourtEvent, { type: "evidence_settled" }>>;
-  // Pipeline 3: the host collects the proposed sources into evidence_filed and
+  // Native pipelines: the host collects the proposed sources into evidence_filed and
   // evidence_unified events, in place of the moderator's unification turn.
-  collect?(events: readonly RecordedEvent[]): Promise<CourtEvent[]>;
+  collect?(events: readonly RecordedEvent[], progress: (event: Extract<CourtEvent, { type: "source_collection_started" | "source_batch_started" | "source_batch_completed" }>) => Promise<void>): Promise<CourtEvent[]>;
 }
 
 const MAX_ATTEMPTS = 2;
@@ -118,7 +118,7 @@ export async function holdSession(bench: Bench): Promise<void> {
   for (const [i, ok] of instructed.entries()) if (!ok) await absent(COUNSEL[i]!, "instruction");
 
   if (bench.collect) {
-    for (const event of await bench.collect(log)) note(event);
+    for (const event of await bench.collect([...log], async (event) => { note(event); await flush(); })) note(event);
     await flush();
   } else if (!(await solo({ kind: "unification" }))) throw new Error("El moderador no unificó las pruebas de la instrucción.");
   const sources = [...project(log).sources.values()];

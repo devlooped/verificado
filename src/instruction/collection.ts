@@ -42,7 +42,7 @@ export async function fetchProposedUrls(reader: SourceService, urls: readonly st
         result = await reader.read({ url, maxChars: 1 });
       }
       if (result.status === "ready") { report("ready"); return { url, sourceId: result.sourceId }; }
-      if (result.status === "pending") throw new Error(`Source ${url} is still being read`);
+      if (result.status === "pending") throw new Error("Source is still being read");
       const error = result.errorCode ?? `source_${result.status}`;
       report("failed", error);
       return { url, error };

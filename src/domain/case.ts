@@ -80,6 +80,12 @@ export function describe(e: CourtEvent): string {
       return MODEL_NAME[e.by] + " propone una fuente sobre " + e.proposal.claimId + " (" + EVIDENCE_STANCE_LABEL[e.proposal.stance] + "): " + e.proposal.url + " «" + e.proposal.quote + "»";
     case "instruction_completed":
       return MODEL_NAME[e.by] + " cierra sus aportes de instrucción:\n" + e.searches.map((s) => s.claimId + " — búsqueda a favor: " + s.supporting + "; búsqueda en contra: " + s.opposing).join("\n");
+    case "source_collection_started":
+      return e.total ? "El moderador comienza a consultar " + e.total + (e.total === 1 ? " enlace propuesto." : " enlaces propuestos.") : "El moderador inicia la recopilación de fuentes: no se propusieron enlaces.";
+    case "source_batch_started":
+      return "El moderador consulta el lote " + e.batch + " de " + e.batches + ".";
+    case "source_batch_completed":
+      return "El moderador consultó " + e.count + (e.count === 1 ? " enlace" : " enlaces") + " (" + e.completed + " de " + e.total + "; lote " + e.batch + " de " + e.batches + ")." + (e.failed ? " No se pudo leer " + e.failed + (e.failed === 1 ? " enlace." : " enlaces.") : "");
     case "evidence_unified":
       return "El moderador unifica las pruebas para la crítica de fuentes:\n" + (e.sources.map((s) =>
         "[" + s.id + "] " + s.title + " (" + s.url + "). Aportes: " + s.contributions.map((c) => c.id + " de " + MODEL_NAME[c.by] + " sobre " + c.claimId + ": " + c.excerpt).join("; ")

@@ -12,6 +12,6 @@ export async function cancelCaseRun(runId: string): Promise<void> {
   }
 }
 
-export async function startCourtSession(caseId: string): Promise<void> {
-  await startCaseWorkflow(caseId, () => start(courtSession, [caseId]), cancelCaseRun);
+export async function startCourtSession(caseId: string, latestPipeline = false): Promise<void> {
+  await startCaseWorkflow(caseId, () => start(courtSession, latestPipeline ? [caseId, true] : [caseId]), cancelCaseRun);
 }

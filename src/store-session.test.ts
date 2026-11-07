@@ -38,4 +38,16 @@ test("opening a new case awaits pipeline preflight and never reruns it for an ex
   assert.equal((await openSession("fixture", () => 3)).pipelineVersion, 3);
   assert.ok(calls.some((sql) => sql.startsWith("UPDATE cases SET pipeline_version = 3")));
   assert.ok(!calls.some((sql) => sql.startsWith("DELETE FROM events")));
+  fresh = true;
+  selected = 1;
+  calls.length = 0;
+  assert.equal((await openSession("fixture", () => 4)).pipelineVersion, 4);
+  assert.ok(calls.some((sql) => sql.startsWith("UPDATE cases SET pipeline_version = 4")));
+  assert.ok(!calls.some((sql) => sql.startsWith("DELETE FROM events")));
+  fresh = true;
+  selected = 1;
+  calls.length = 0;
+  assert.equal((await openSession("fixture", () => 5)).pipelineVersion, 5);
+  assert.ok(calls.some((sql) => sql.startsWith("UPDATE cases SET pipeline_version = 5")));
+  assert.ok(!calls.some((sql) => sql.startsWith("DELETE FROM events")));
 });

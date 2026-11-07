@@ -125,4 +125,8 @@ test("a bridge preflight failure before opening marks the case failed and create
   assert.ok(queries.includes("ROLLBACK"));
   assert.equal(alert?.[0], "case-preflight");
   assert.match(alert?.[3] as string, /snapshot/);
+  process.env.COURT_PIPELINE_VERSION = "1";
+  alert = undefined;
+  await assert.rejects(courtSession("case-rerun-preflight", true), /Instruction sandbox bridge requires trusted/, "a rerun uses the latest pipeline rather than the legacy rollback");
+  assert.equal(alert?.[0], "case-rerun-preflight");
 });

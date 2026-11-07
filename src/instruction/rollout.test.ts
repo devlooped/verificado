@@ -10,7 +10,7 @@ test("new cases default to shared instruction in production and retain explicit 
     assert.equal(await requestedPipeline("fixture", false), 2);
     assert.equal(await requestedPipeline("different-case", false), 2);
     process.env.COURT_PIPELINE_VERSION = "3";
-    assert.equal(await requestedPipeline("fixture", false), 3, "native research is an explicit opt-in");
+    assert.equal(await requestedPipeline("fixture", false), 5, "native research is an explicit opt-in; new cases use replay-safe batch URLs");
     delete process.env.COURT_PIPELINE_VERSION;
     assert.equal(await requestedPipeline("different-case", false), 2);
     process.env.VERCEL_ENV = "preview";
@@ -60,6 +60,15 @@ test("mock shared instruction still requires the dedicated local database", asyn
     await assert.rejects(requestedPipeline("fixture", true), /Local database preflight/);
     process.env.DATABASE_URL = "postgresql://grokeado:fixture@127.0.0.1:5432/grokeado_local_fixture";
     assert.equal(await requestedPipeline("fixture", true), 2);
+    for (const version of [undefined, "1", "2", "3"]) {
+      if (version === undefined) delete process.env.COURT_PIPELINE_VERSION;
+      else process.env.COURT_PIPELINE_VERSION = version;
+      for (const check of ["expert", "quick"] as const) {
+        assert.equal(await requestedPipeline("rerun", true, check, true), 5, `rerun selects latest for ${check}, rollout ${version}`);
+      }
+    }
+    delete process.env.DATABASE_URL;
+    await assert.rejects(requestedPipeline("rerun", true, "expert", true), /Local database preflight/);
   } finally {
     for (const [key, value] of Object.entries(previous)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
   }
@@ -75,10 +84,12 @@ test("a Quick check keeps shared storage and needs no sandbox bridge", async () 
     assert.equal(await requestedPipeline("fixture", false, "quick"), 2);
     await assert.rejects(requestedPipeline("fixture", false, "expert"), /required|requires/, "an Expert case still needs the bridge");
     process.env.COURT_PIPELINE_VERSION = "1";
+    assert.equal(await requestedPipeline("fixture", false, "quick", true), 5, "reruns use the latest even with legacy rollback");
+    await assert.rejects(requestedPipeline("fixture", false, "expert", true), /required|requires/, "reruns still require the bridge");
     assert.equal(await requestedPipeline("fixture", false, "quick"), 2, "the legacy switch does not apply to Quick checks");
     assert.equal(await requestedPipeline("fixture", false, "expert"), 1);
     process.env.COURT_PIPELINE_VERSION = "3";
-    assert.equal(await requestedPipeline("fixture", false, "quick"), 3);
+    assert.equal(await requestedPipeline("fixture", false, "quick"), 5);
     process.env.AI_GATEWAY_API_KEY = "placeholder";
     await assert.rejects(requestedPipeline("fixture", false, "quick"), /AI Gateway key are required/);
   } finally {

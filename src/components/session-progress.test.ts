@@ -11,19 +11,31 @@ const claims: CourtEvent = { type: "claims_entered", claims: [{ id: "A1", quote:
 test("the stage is the furthest one the recorded events reached", () => {
   assert.equal(sessionStage([]), 0);
   assert.equal(sessionStage([{ type: "session_opened" }, claims, { type: "instruction_opened" }]), 0);
-  assert.equal(sessionStage([claims, { type: "evidence_unified" }]), 1);
-  assert.equal(sessionStage([{ type: "evidence_unified" }, { type: "statement" }]), 2);
-  assert.equal(sessionStage([{ type: "statement" }, { type: "vote" }, { type: "absence" }]), 3);
+  assert.equal(sessionStage([claims, { type: "source_collection_started" }]), 1);
+  assert.equal(sessionStage([{ type: "source_batch_started" }]), 1);
+  assert.equal(sessionStage([{ type: "source_batch_completed" }, { type: "evidence_unified" }]), 2);
+  assert.equal(sessionStage([{ type: "evidence_unified" }, { type: "statement" }]), 3);
+  assert.equal(sessionStage([{ type: "statement" }, { type: "vote" }, { type: "absence" }]), 4);
 });
 
 test("the progress marks the current stage and says how many claims are under study", () => {
   const events: CourtEvent[] = [claims, { type: "evidence_unified", sources: [] }];
-  const { document } = parseHTML(renderToStaticMarkup(createElement(SessionProgress, { events, queued: false })));
+  const { document } = parseHTML(renderToStaticMarkup(createElement(SessionProgress, { events, queued: false, collectionProgress: true })));
   const steps = [...document.querySelectorAll("ol li")];
   assert.equal(steps.length, PROGRESS_STEPS.length);
-  assert.equal(steps.findIndex((li) => li.getAttribute("aria-current") === "step"), 1);
-  assert.match(document.querySelector('[role="status"]')!.textContent, /Etapa 2 de 4: Crítica de fuentes/);
+  assert.equal(steps.findIndex((li) => li.getAttribute("aria-current") === "step"), 2);
+  assert.match(document.querySelector('[role="status"]')!.textContent, /Etapa 3 de 5: Crítica de fuentes/);
   assert.match(document.toString(), /2 afirmaciones en estudio/);
+});
+
+test("collection progress displays consulted counts and legacy cases keep their original stages", () => {
+  const events: CourtEvent[] = [claims, { type: "source_collection_started", total: 5, batches: 2 }, { type: "source_batch_completed", batch: 1, batches: 2, count: 4, completed: 4, total: 5, failed: 1 }];
+  const document = parseHTML(renderToStaticMarkup(createElement(SessionProgress, { events, queued: false, collectionProgress: true }))).document;
+  assert.match(document.querySelector('[role="status"]')!.textContent, /Etapa 2 de 5: Fuentes/);
+  assert.match(document.toString(), /Enlaces consultados: 4 de 5/);
+  const legacy = parseHTML(renderToStaticMarkup(createElement(SessionProgress, { events: [claims, { type: "evidence_unified", sources: [] }], queued: false }))).document;
+  assert.equal(legacy.querySelectorAll("ol li").length, 4);
+  assert.match(legacy.querySelector('[role="status"]')!.textContent, /Etapa 2 de 4: Crítica de fuentes/);
 });
 
 test("a Quick check shows two stages: the answers, then the result", () => {

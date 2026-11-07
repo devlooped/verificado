@@ -83,7 +83,7 @@ export async function retryCase(id: string): Promise<void> {
 
   if (await requeueCase(id, withSandboxCleanup(deleteCaseBlobs))) {
     try {
-      await startCourtSession(id);
+      await startCourtSession(id, true);
     } catch (err) {
       console.error("could not start court session:", err);
       await finishCase(id, "failed", "No se pudo iniciar la sesión.");

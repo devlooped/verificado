@@ -19,6 +19,31 @@ function render(events: CourtEvent[], models?: SeatModels) {
   return parseHTML(renderToStaticMarkup(createElement(SessionDialogue, { events: recorded, caseId: "fixture", models }))).document;
 }
 
+test("source collection updates are attributed to the moderator and show failures", () => {
+  const document = render([opened, { type: "source_collection_started", total: 5, batches: 2 }, { type: "source_batch_completed", batch: 1, batches: 2, count: 4, completed: 4, total: 5, failed: 1 }]);
+  const entries = [...document.querySelector('[role="log"] ol')!.children];
+  assert.equal(entries.length, 2);
+  assert.match(entries[0].textContent, /Moderador · Claude.*4 de 5; lote 1 de 2.*No se pudo leer 1 enlace/s);
+  assert.match(entries[1].textContent, /Moderador · Claude.*comienza a consultar 5 enlaces/s);
+});
+
+test("the live timeline shows batch URLs before the fetch and marks unreadable links afterward", () => {
+  const urls = ["https://example.test/slow?x=1&y=2", "https://example.test/unreadable"];
+  const document = render([opened, { type: "source_batch_started", batch: 1, batches: 1, urls }, { type: "source_batch_completed", batch: 1, batches: 1, count: 2, completed: 2, total: 2, failed: 1, sources: urls.map((url, i) => ({ url, failed: i === 1 })) }]);
+  const entries = [...document.querySelector('[role="log"] ol')!.children];
+  assert.equal(entries.length, 2);
+  assert.match(entries[1].textContent, /Moderador · Claude.*consulta el lote 1 de 1/s);
+  assert.deepEqual([...entries[1].querySelectorAll("a")].map((a) => a.getAttribute("href")), urls);
+  assert.match(entries[0].textContent, /unreadable · No se pudo leer/);
+  assert.ok([...entries[0].querySelectorAll("a")].every((a) => a.getAttribute("rel") === "noreferrer noopener"));
+});
+
+test("unsafe recorded URLs are never turned into executable links", () => {
+  const document = render([{ type: "source_batch_started", batch: 1, batches: 1, urls: ["javascript:alert(1)", "https://user:pass@example.test/"] }]);
+  assert.equal(document.querySelectorAll('[role="log"] a').length, 0);
+  assert.match(document.querySelector('[role="log"]')!.textContent, /javascript:alert/);
+});
+
 test("the live dialogue prepends the newest complete moderator and analyst messages, without stage folds", () => {
   const statements: CourtEvent[] = COUNSEL.map((by, i) => ({ type: "statement", id: "I" + (i + 1), by, stage: "opening", text: "Intervención completa de " + by + ".\nSegunda línea con el fundamento público sobre A1.", evidenceIds: [] }));
   const document = render([

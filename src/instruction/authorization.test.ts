@@ -22,6 +22,8 @@ const context = { phase: "debate" as const, pipelineVersion: 2, status: "in_sess
 test("sandbox authorization rejects expired/revoked/unknown phase identities and inactive or exhausted grants", () => {
   assert.doesNotThrow(() => authorizeSandboxBinding(binding, context));
   assert.doesNotThrow(() => authorizeSandboxBinding(binding, { ...context, pipelineVersion: 3 }));
+  assert.doesNotThrow(() => authorizeSandboxBinding(binding, { ...context, pipelineVersion: 4 }));
+  assert.doesNotThrow(() => authorizeSandboxBinding(binding, { ...context, pipelineVersion: 5 }));
   for (const changed of [ { revoked: true }, { expiresAt: "invalid" }, { expiresAt: "2020-01-01" }, { activeTurn: undefined }, { activeTurn: { ...binding.activeTurn!, remainingRequests: 0 } }, { activeTurn: { ...binding.activeTurn!, expiresAt: "2020-01-01" } } ]) assert.throws(() => authorizeSandboxBinding({ ...binding, ...changed }, context));
   for (const changed of [{ phase: "instruction" as const }, { phase: "settling" as const }, { status: "resolved" }, { status: "failed" }, { pipelineVersion: 1 }, { phaseSessionId: "other" }, { activeTurnId: "other" }]) assert.throws(() => authorizeSandboxBinding(binding, { ...context, ...changed }));
 });

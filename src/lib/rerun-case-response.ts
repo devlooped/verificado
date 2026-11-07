@@ -2,7 +2,7 @@ import { isAdmin, type CaseUser } from "./case-access.ts";
 
 type RerunDependencies = {
   restartCase: (id: string) => Promise<"queued" | "missing" | "active" | "missing-image">;
-  start: (id: string) => Promise<unknown>;
+  start: (id: string, latestPipeline: boolean) => Promise<unknown>;
   finish: (id: string, status: "failed", error: string) => Promise<void>;
 };
 
@@ -17,7 +17,7 @@ export async function rerunCaseResponse(request: Request, id: string, user: Case
     if (result === "active") return Response.json({ error: "El caso o una tarea detenida sigue en curso. Intentá de nuevo más tarde." }, { status: 409 });
     if (result === "missing-image") return Response.json({ error: "No se encontró la imagen original." }, { status: 409 });
     try {
-      await deps.start(id);
+      await deps.start(id, true);
     } catch (error) {
       console.error("could not start court session:", error);
       await deps.finish(id, "failed", "No se pudo iniciar la sesión.");

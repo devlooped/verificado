@@ -64,7 +64,7 @@ function InSession({ c, events, activities }: { c: StoredCaseRecord; events: Rec
       <p className="mx-auto mt-4 max-w-md text-ink-soft">
         {COUNSEL_NAMES} {check === "quick" ? "están respondiendo tu consulta, cada uno con su propia búsqueda" : "están investigando y debatiendo tu consulta"}. Podés seguir el diálogo abajo; cuando terminen vas a ver el resultado y el registro completo.
       </p>
-      <SessionProgress events={events} queued={c.status === "queued"} check={check} />
+      <SessionProgress events={events} queued={c.status === "queued"} check={check} collectionProgress={c.pipelineVersion === 4 || c.pipelineVersion === 5} />
       <p className="mx-auto mt-6 max-w-md text-xs text-ink-soft">
         Esta página se actualiza sola. Podés cerrarla: el análisis sigue y el resultado queda en esta misma dirección.{" "}
         <Link href="/method" className="text-celeste-deep underline underline-offset-4">Cómo trabaja el panel</Link>

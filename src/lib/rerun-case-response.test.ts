@@ -8,7 +8,7 @@ function dependencies(result: "queued" | "missing" | "active" | "missing-image" 
   const calls: unknown[][] = [];
   return { calls, deps: {
     restartCase: async (id: string) => { calls.push(["restartCase", id]); return result; },
-    start: async (id: string) => { calls.push(["start", id]); },
+    start: async (id: string, latestPipeline: boolean) => { calls.push(["start", id, latestPipeline]); },
     finish: async (id: string, status: "failed", error: string) => { calls.push(["finish", id, status, error]); },
   } };
 }
@@ -30,7 +30,7 @@ test("a rerun resets and starts the same case id", async () => {
   const response = await rerunCaseResponse(request(), "AA-123-BB", admin, deps);
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { id: "AA-123-BB" });
-  assert.deepEqual(calls, [["restartCase", "AA-123-BB"], ["start", "AA-123-BB"]]);
+  assert.deepEqual(calls, [["restartCase", "AA-123-BB"], ["start", "AA-123-BB", true]]);
 });
 
 test("missing and active cases and cases with missing images are not started", async () => {

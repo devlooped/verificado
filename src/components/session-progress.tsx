@@ -1,26 +1,30 @@
 import type { CheckType, CourtEvent } from "@/domain/court.ts";
 
 // The stages of the method page, in the order the court goes through them.
-export const PROGRESS_STEPS = ["Instrucción", "Crítica de fuentes", "Debate", "Resultado"] as const;
+export const PROGRESS_STEPS = ["Instrucción", "Fuentes", "Crítica de fuentes", "Debate", "Resultado"] as const;
+const LEGACY_PROGRESS_STEPS = ["Instrucción", "Crítica de fuentes", "Debate", "Resultado"] as const;
 // A Quick check: the analysts answer, then vote.
 export const QUICK_PROGRESS_STEPS = ["Respuestas", "Resultado"] as const;
 
 const STAGE_OF: Partial<Record<CourtEvent["type"], number>> = {
-  evidence_unified: 1,
-  source_review_vote: 1,
-  source_decided: 1,
-  instruction_closed: 2,
-  floor_granted: 2,
-  statement: 2,
-  objection: 2,
-  objection_reply: 2,
-  ruling: 2,
-  vote: 3,
-  judgment: 3,
-  content_vote: 3,
-  content_judgment: 3,
-  case_summary: 3,
-  session_closed: 3,
+  source_collection_started: 1,
+  source_batch_started: 1,
+  source_batch_completed: 1,
+  evidence_unified: 2,
+  source_review_vote: 2,
+  source_decided: 2,
+  instruction_closed: 3,
+  floor_granted: 3,
+  statement: 3,
+  objection: 3,
+  objection_reply: 3,
+  ruling: 3,
+  vote: 4,
+  judgment: 4,
+  content_vote: 4,
+  content_judgment: 4,
+  case_summary: 4,
+  session_closed: 4,
 };
 
 // The stage the court is in: the furthest one any recorded event belongs to.
@@ -30,20 +34,23 @@ export function sessionStage(events: readonly Pick<CourtEvent, "type">[]): numbe
 
 // A Quick check reaches its result with the first vote.
 export function quickStage(events: readonly Pick<CourtEvent, "type">[]): number {
-  return sessionStage(events) === 3 ? 1 : 0;
+  return sessionStage(events) === 4 ? 1 : 0;
 }
 
-export function SessionProgress({ events, queued, check = "expert" }: { events: readonly CourtEvent[]; queued: boolean; check?: CheckType }) {
+export function SessionProgress({ events, queued, check = "expert", collectionProgress = false }: { events: readonly CourtEvent[]; queued: boolean; check?: CheckType; collectionProgress?: boolean }) {
   const quick = check === "quick";
-  const steps: readonly string[] = quick ? QUICK_PROGRESS_STEPS : PROGRESS_STEPS;
-  const current = queued ? -1 : quick ? quickStage(events) : sessionStage(events);
+  const steps: readonly string[] = quick ? QUICK_PROGRESS_STEPS : collectionProgress ? PROGRESS_STEPS : LEGACY_PROGRESS_STEPS;
+  const stage = sessionStage(events);
+  const current = queued ? -1 : quick ? quickStage(events) : collectionProgress ? stage : Math.max(0, stage - 1);
   const claims = events.findLast((e) => e.type === "claims_entered")?.claims.length ?? 0;
+  const collected = events.findLast((e) => e.type === "source_batch_completed");
+  const collection = events.findLast((e) => e.type === "source_collection_started");
   return (
     <div className="mx-auto mt-10 max-w-xl text-left">
       <p className="sr-only" role="status">
         {queued ? "El caso está en espera." : "Etapa " + (current + 1) + " de " + steps.length + ": " + steps[current] + "."}
       </p>
-      <ol className={"grid gap-2 " + (quick ? "grid-cols-2" : "grid-cols-4")} aria-label="Etapas del análisis">
+      <ol className={"grid gap-2 " + (quick ? "grid-cols-2" : collectionProgress ? "grid-cols-5" : "grid-cols-4")} aria-label="Etapas del análisis">
         {steps.map((step, i) => {
           const state = i < current ? "done" : i === current ? "current" : "pending";
           return (
@@ -67,6 +74,8 @@ export function SessionProgress({ events, queued, check = "expert" }: { events: 
           ? "El caso está en espera; el panel lo toma en un momento."
           : quick
             ? current === 0 ? "Los analistas están respondiendo." : "Los analistas están votando."
+          : collectionProgress && current === 1 && collection
+            ? "Enlaces consultados: " + (collected?.completed ?? 0) + " de " + collection.total + "."
           : claims > 0
             ? claims + (claims === 1 ? " afirmación en estudio." : " afirmaciones en estudio.")
             : "El moderador está identificando las afirmaciones."}

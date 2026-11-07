@@ -69,7 +69,11 @@ test("two URLs that lead to the same page, read at once, wait for one reading", 
   assert.deepEqual(fetched.map((result) => result.error), [undefined, undefined, undefined]);
   assert.equal(new Set(fetched.map((result) => result.sourceId)).size, 1, "one source for the page");
   assert.equal(downloads(), 3);
-  await assert.rejects(fetchProposedUrls(reader(300).service, urls, 0), /is still being read/, "without the wait, the step fails");
+  await assert.rejects(fetchProposedUrls(reader(300).service, urls, 0), (error: Error) => {
+    assert.match(error.message, /is still being read/);
+    assert.ok(urls.every((url) => !error.message.includes(url)), "the error must not expose source URLs to workflow logs");
+    return true;
+  }, "without the wait, the step fails");
 });
 
 test("without proposals, collection files an empty source file", async () => {

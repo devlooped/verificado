@@ -58,10 +58,10 @@ export async function advanceSharedTurn(caseId: string, docket: Docket, spec: Tu
   const audit = injected?.audit ?? saveCaseAuditRecord;
   const activity = injected?.activity ?? recordCaseToolActivity;
   const seat = seatOf(spec), phase = turnPhase(spec), model = seatModel(docket.models, seat);
-  // Pipeline 3 researches with the provider's tools in one preparation call;
+  // Native pipelines research with the provider's tools in one preparation call;
   // the decision only files what the report found.
-  const native = stored.pipelineVersion === 3 && (phase === "instruction" || phase === "criticism");
-  // A pipeline 3 seat decides in prose, then gives the same decision as a typed
+  const native = (stored.pipelineVersion === 3 || stored.pipelineVersion === 4 || stored.pipelineVersion === 5) && (phase === "instruction" || phase === "criticism");
+  // A native seat decides in prose, then gives the same decision as a typed
   // answer, which the host records: it cannot answer without deciding.
   const typed = native ? typedDecision(phase, record) : undefined;
   const corpus = phase === "debate" ? await loadSettledCorpus(caseId, record as RecordedEvent[], artifacts) : undefined;

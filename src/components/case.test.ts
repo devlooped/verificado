@@ -12,6 +12,22 @@ function render(events: CourtEvent[]) {
   return renderToStaticMarkup(createElement(Case, { events: recorded, view: project(recorded), caseId: "fixture" }));
 }
 
+test("the case record keeps collection progress in a Fuentes section", () => {
+  const document = parseHTML(render([{ type: "instruction_opened" }, { type: "source_collection_started", total: 1, batches: 1 }, { type: "source_batch_completed", batch: 1, batches: 1, count: 1, completed: 1, total: 1, failed: 0 }, { type: "evidence_unified", sources: [] }])).document;
+  const section = [...document.querySelectorAll("details")].find((item) => item.querySelector("summary h3")?.textContent === "Fuentes")!;
+  assert.match(section.textContent, /Enlaces consultados · 1 de 1/);
+  assert.ok(section.textContent.includes("El moderador consultó 1 enlace (1 de 1; lote 1 de 1)"));
+  assert.ok([...document.querySelectorAll("summary h3")].some((item) => item.textContent === "Crítica de fuentes"));
+});
+
+test("the case record retains batch URLs in the Fuentes section", () => {
+  const url = "https://example.test/source";
+  const document = parseHTML(render([{ type: "instruction_opened" }, { type: "source_collection_started", total: 1, batches: 1 }, { type: "source_batch_started", batch: 1, batches: 1, urls: [url] }, { type: "source_batch_completed", batch: 1, batches: 1, count: 1, completed: 1, total: 1, failed: 1, sources: [{ url, failed: true }] }, { type: "evidence_unified", sources: [] }])).document;
+  const section = [...document.querySelectorAll("details")].find((item) => item.querySelector("summary h3")?.textContent === "Fuentes")!;
+  assert.equal(section.querySelectorAll(`a[href="${url}"]`).length, 2);
+  assert.match(section.textContent, /source · No se pudo leer/);
+});
+
 test("majority results show small vote chips with agreeing analysts first and dissent last", () => {
   const input: CourtEvent[] = [
     { type: "claims_entered", claims: ["A1", "A2", "A3", "A4", "A5"].map((id) => ({ id, quote: id, text: id })) },

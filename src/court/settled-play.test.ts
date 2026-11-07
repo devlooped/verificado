@@ -8,7 +8,8 @@ import { settleEvidence, loadSettledCorpus } from "../evidence/settled.ts";
 import { MemoryOperationRepository } from "../instruction/source-store.ts";
 import { SourceService, extractSource } from "../instruction/sources.ts";
 import { mockResearchWorker } from "../instruction/mock.ts";
-import { collectEvidence, fetchProposedUrls, proposedUrls, rejectionRecord } from "../instruction/collection.ts";
+import { collectEvidence, fetchProposedUrls, rejectionRecord } from "../instruction/collection.ts";
+import { collectProposedBatches } from "../instruction/proposed-urls.ts";
 import { DEFAULT_MODELS, modelSnapshot } from "./models.ts";
 import { createMockSeat } from "./mock.ts";
 import { MemoryPhaseRepository } from "./phase-session.ts";
@@ -120,10 +121,10 @@ test("a retry after generation and court-action checkpoints reuses messages, act
   assert.equal(generations, 1);
 });
 
-test("pipeline 3: analysts file URL and quote proposals, the host collects them without a unification turn, and criticism reads the index", async () => {
+test("pipeline 5: analysts file URL and quote proposals, the host collects with durable progress, and criticism reads the index", async () => {
   const artifacts = new MemoryArtifactStore(), operations = new MemoryOperationRepository(), repository = new MemoryPhaseRepository();
   const submission = { kind: "text" as const, text: "SIMULACIÓN LOCAL: afirmación para verificar.", resolvedLanguage: "es" };
-  const stored: CaseRecord = { id: "fixture", createdAt: "2026-11-05T00:00:00.000Z", status: "in_session", pipelineVersion: 3, submission, models: modelSnapshot(DEFAULT_MODELS) };
+  const stored: CaseRecord = { id: "fixture", createdAt: "2026-11-05T00:00:00.000Z", status: "in_session", pipelineVersion: 5, submission, models: modelSnapshot(DEFAULT_MODELS) };
   let downloads = 0;
   const reader = () => new SourceService("fixture", "es", { operations, artifacts, translatorModelId: "fixture/translator", translatorFingerprint: "fixture-v1",
     verifyLanguage: async () => ({ matches: true }), extract: extractSource, translate: async (input) => ({ ...input, changed: false }),
@@ -134,8 +135,8 @@ test("pipeline 3: analysts file URL and quote proposals, the host collects them 
   await holdSession({ submission, models: { judge: "fixture", counsel: Object.fromEntries(COUNSEL.map((seat) => [seat, "fixture"])) as Record<typeof COUNSEL[number], string> },
     commit: async (batch) => { events.push(...batch); },
     settle: (record) => settleEvidence("fixture", "es", record, reader(), artifacts),
-    collect: async (record) => {
-      const fetched = await fetchProposedUrls(reader(), proposedUrls(record));
+    collect: async (record, progress) => {
+      const fetched = await collectProposedBatches(record, (urls) => fetchProposedUrls(reader(), urls), progress, true);
       const collected = await collectEvidence(record, fetched, reader());
       audit.push(...collected.rejected.map(rejectionRecord));
       return collected.events;
@@ -156,6 +157,15 @@ test("pipeline 3: analysts file URL and quote proposals, the host collects them 
     },
   });
   assert.equal(events.at(-1)?.type, "session_closed");
+  const started = events.findIndex((event) => event.type === "source_collection_started");
+  assert.ok(started > 0);
+  const batchStarted = events[started + 1], batchCompleted = events[started + 2];
+  assert.equal(batchStarted.type, "source_batch_started");
+  assert.equal(batchCompleted.type, "source_batch_completed");
+  if (batchStarted.type !== "source_batch_started" || batchCompleted.type !== "source_batch_completed") throw Error("unexpected events");
+  assert.equal(batchStarted.urls.length, 3);
+  assert.deepEqual(batchCompleted.sources, batchStarted.urls.map((url) => ({ url, failed: false })));
+  assert.ok(events.findIndex((event) => event.type === "evidence_filed") > started + 2);
   assert.ok(!played.includes("unification"), "the host collects in place of the moderator");
   assert.equal(events.filter((event) => event.type === "evidence_proposed").length, 12);
   assert.equal(events.filter((event) => event.type === "evidence_filed").length, 12);

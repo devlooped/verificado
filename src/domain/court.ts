@@ -158,6 +158,9 @@ export type CourtEvent =
   | { type: "evidence_filed"; evidence: Evidence }
   | { type: "evidence_proposed"; by: Counsel; proposal: EvidenceProposal }
   | { type: "instruction_completed"; by: Counsel; searches: InstructionSearch[] }
+  | { type: "source_collection_started"; total: number; batches: number }
+  | { type: "source_batch_started"; batch: number; batches: number; urls: string[] }
+  | { type: "source_batch_completed"; batch: number; batches: number; count: number; completed: number; total: number; failed: number; sources?: { url: string; failed: boolean }[] }
   | { type: "evidence_unified"; sources: UnifiedSource[] }
   | { type: "source_review_vote"; by: Counsel; sourceId: string; veto: boolean; reason: string }
   | { type: "source_decided"; sourceId: string; excluded: boolean }
@@ -198,13 +201,15 @@ export type CaseRecord = {
 };
 
 // 1: legacy instruction. 2: shared instruction with a host tool loop. 3: shared
-// instruction with native provider research and host collection.
-export type PipelineVersion = 1 | 2 | 3;
+// instruction with native provider research and host collection. 4 adds
+// durable collection progress; 5 adds batch URLs without changing older replays.
+export type PipelineVersion = 1 | 2 | 3 | 4 | 5;
+export const LATEST_PIPELINE_VERSION: PipelineVersion = 5;
 
-// Pipelines 2 and 3 share the durable instruction model (phase sessions,
+// Pipelines 2–5 share the durable instruction model (phase sessions,
 // sandboxes, settled corpus); they differ only in how sources are researched.
-export function sharedPipeline(version: number | null | undefined): version is 2 | 3 {
-  return version === 2 || version === 3;
+export function sharedPipeline(version: number | null | undefined): version is 2 | 3 | 4 | 5 {
+  return version === 2 || version === 3 || version === 4 || version === 5;
 }
 
 export function majority(verdicts: Verdict[]): Verdict | undefined {

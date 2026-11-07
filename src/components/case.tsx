@@ -1,4 +1,5 @@
-import { ABSENCE_LABEL, EVIDENCE_STANCE_LABEL, STAGE_LABEL, VERDICT_LABEL } from "@/domain/case.ts";
+import { ABSENCE_LABEL, describe, EVIDENCE_STANCE_LABEL, STAGE_LABEL, VERDICT_LABEL } from "@/domain/case.ts";
+import { canonicalUrl } from "@/instruction/proposed-urls.ts";
 import { COUNSEL, MODEL_NAME, modelDetail, modelMark, modelName, project, seatModels, type CaseView, type Counsel, type Evidence, type RecordedEvent, type Seat, type SeatModels, type SourceView, type Stage } from "@/domain/court.ts";
 import { FoldButtons, FoldNavigation } from "./case-folding.tsx";
 import { CitationLink, Cited, citationHref, citationRefs, mentions, type Citations } from "./citations.tsx";
@@ -184,6 +185,21 @@ function Entry({ e, ctx }: { e: RecordedEvent; ctx: Context }) {
     case "instruction_opened":
     case "evidence_proposed":
       return null;
+    case "source_collection_started":
+      return <p className="text-sm text-ink-soft">{describe(e)}</p>;
+    case "source_batch_started":
+    case "source_batch_completed": {
+      const sources: { url: string; failed?: boolean }[] = e.type === "source_batch_started" ? e.urls.map((url) => ({ url })) : e.sources ?? [];
+      return (
+        <div className="text-sm text-ink-soft">
+          <p>{describe(e)}</p>
+          {sources.length > 0 && <ul className="mt-2 space-y-1">{sources.map((source, i) => {
+            const href = canonicalUrl(source.url);
+            return <li key={i} className="break-all">{href ? <a href={href} target="_blank" rel="noreferrer noopener" className="text-celeste-deep underline underline-offset-2">{source.url}</a> : source.url}{source.failed && <span className="text-seal"> · No se pudo leer</span>}</li>;
+          })}</ul>}
+        </div>
+      );
+    }
     case "instruction_completed":
       return (
         <details className="text-sm text-ink-soft">
@@ -307,12 +323,13 @@ const INDENTED = new Set<RecordedEvent["type"]>([
   "objection", "objection_reply", "ruling", "vote", "content_vote", "case_summary",
 ]);
 
-type SectionKey = "apertura" | "respuestas" | "instruccion" | "fuentes" | Stage | "resultado";
+type SectionKey = "apertura" | "respuestas" | "instruccion" | "recopilacion" | "fuentes" | Stage | "resultado";
 
 const SECTION_TITLE: Record<SectionKey, string> = {
   apertura: "Apertura",
   respuestas: "Respuestas",
   instruccion: "Instrucción",
+  recopilacion: "Fuentes",
   fuentes: "Crítica de fuentes",
   opening: "Exposiciones iniciales",
   rebuttal: "Réplicas",
@@ -342,6 +359,7 @@ function sectionsOf(events: readonly RecordedEvent[]): Section[] {
   for (const e of events) {
     if (e.type === "quick_response") key = "respuestas";
     else if (e.type === "instruction_opened") key = "instruccion";
+    else if (e.type === "source_collection_started" || e.type === "source_batch_started" || e.type === "source_batch_completed") key = "recopilacion";
     else if ((e.type === "evidence_filed" || e.type === "instruction_completed") && key === "apertura") key = "instruccion";
     else if (e.type === "evidence_unified") key = "fuentes";
     else if (e.type === "floor_granted" || e.type === "statement") key = e.stage;
@@ -406,6 +424,11 @@ function summaryOf(section: Section, view: CaseView): string {
     case "instruccion": {
       const analysts = new Set(section.events.flatMap((e) => (e.type === "evidence_filed" ? [e.evidence.by] : [])));
       return "Pruebas a favor y en contra · " + plural(count("evidence_filed"), "prueba", "pruebas") + " de " + plural(analysts.size, "analista", "analistas");
+    }
+    case "recopilacion": {
+      const last = section.events.findLast((e) => e.type === "source_batch_completed");
+      const start = section.events.find((e) => e.type === "source_collection_started");
+      return "Enlaces consultados · " + (last?.completed ?? 0) + " de " + (start?.total ?? last?.total ?? 0);
     }
     case "fuentes": {
       const sources = [...view.sources.values()];
@@ -546,6 +569,9 @@ function dialogueSpeaker(e: RecordedEvent): Seat | undefined {
   switch (e.type) {
     case "claims_entered":
     case "dismissed":
+    case "source_collection_started":
+    case "source_batch_started":
+    case "source_batch_completed":
     case "evidence_unified":
     case "floor_granted":
     case "ruling":
