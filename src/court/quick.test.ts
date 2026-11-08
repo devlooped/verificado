@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { COUNSEL, project, type Claim, type Counsel, type RecordedEvent, type Verdict } from "../domain/court.ts";
 import { languageRule } from "../domain/language.ts";
-import { holdQuickSession, QUICK_VOTE_REQUEST, quickClaimsPrompt, quickClaimsSchema, quickPrompt, quickTiebreakPrompt, quickVoteMessages, type QuickAnswer, type QuickBench, type QuickClaims, type QuickDecision, type QuickEntry, type QuickFailure, type QuickVote } from "./quick.ts";
+import { holdQuickSession, QUICK_VOTE_REQUEST, quickClaimsPrompt, quickClaimsSchema, quickPrompt, quickSummaryPrompt, quickTiebreakPrompt, quickVoteMessages, type QuickAnswer, type QuickBench, type QuickClaims, type QuickDecision, type QuickEntry, type QuickFailure, type QuickMajority, type QuickVote } from "./quick.ts";
 
 const MODELS = { judge: "spacexai/grok-4.7", counsel: { grok: "spacexai/grok-4.7", gemini: "google/gemini-4-argon", claude: "anthropic/claude-opus-5.5", chatgpt: "openai/gpt-6.1-sol" } };
 const AT = "2026-11-07T12:00:00.000Z";
@@ -70,6 +70,55 @@ test("four agreeing votes give a consensus result without calling the moderator"
   assert.ok(!events.some((e) => EXPERT_EVENTS.has(e.type)), "no Expert turn is played");
   const response = events.find((e) => e.type === "quick_response");
   assert.deepEqual(response?.type === "quick_response" && response.sources, [{ url: "https://www.indec.gob.ar/grok" }]);
+});
+
+test("the moderator summarizes only the supporting votes, keeping claim and content majorities separate", async () => {
+  const { bench, events } = makeBench({
+    claimVotes: { A1: { grok: [vote("verdadero")] }, A2: { grok: [vote("verdadero")], gemini: [vote("verdadero")] } },
+    votes: { chatgpt: [vote("enganoso")] },
+  });
+  bench.submission.identifyClaims = true;
+  let received: QuickMajority[] = [];
+  bench.summarize = async (majorities) => { received = majorities; return { text: "  La mayoría cita datos distintos para cada resultado.  ", at: AT }; };
+  await holdQuickSession(bench);
+  assert.deepEqual(received.map((m) => [m.claim?.id, m.verdict, m.votes.map((v) => v.by)]), [
+    ["A1", "falso", ["gemini", "claude", "chatgpt"]],
+    [undefined, "falso", ["grok", "gemini", "claude"]],
+  ]);
+  assert.equal(project(events).claims[1].judgment?.method, "judge", "a tie is not represented as a majority");
+  assert.equal(project(events).summary, "La mayoría cita datos distintos para cada resultado.");
+  assert.deepEqual(events.slice(-2).map((e) => e.type), ["case_summary", "session_closed"]);
+  assert.equal(events.at(-2)?.at, AT);
+});
+
+test("a majority summary retries empty or failed output, and fails the case rather than inventing one", async () => {
+  const { bench, events } = makeBench({});
+  const attempts: number[] = [];
+  bench.summarize = async (_majorities, attempt) => { attempts.push(attempt); return attempt ? { text: "Resumen suficiente.", at: AT } : { text: "  ", at: AT }; };
+  await holdQuickSession(bench);
+  assert.deepEqual(attempts, [0, 1]);
+  assert.equal(project(events).summary, "Resumen suficiente.");
+  const broken = makeBench({});
+  broken.bench.summarize = async () => ({ error: "timeout" });
+  await assert.rejects(holdQuickSession(broken.bench), /no resumió/);
+  assert.ok(!broken.events.some((e) => e.type === "session_closed" || e.type === "case_summary"));
+});
+
+test("a tie without any majority does not request a majority summary", async () => {
+  const { bench, events } = makeBench({ votes: { grok: [vote("verdadero")], gemini: [vote("verdadero")] } });
+  bench.summarize = async () => { throw new Error("unexpected summary"); };
+  await holdQuickSession(bench);
+  assert.equal(project(events).contentJudgment?.method, "judge");
+  assert.equal(project(events).summary, undefined);
+});
+
+test("the majority summary prompt is bounded to the supplied votes and language", () => {
+  const majority: QuickMajority = { verdict: "falso", votes: [{ by: "grok", rationale: "El dato no coincide." }] };
+  const prompt = quickSummaryPrompt("es", [majority]);
+  assert.ok(prompt.system.startsWith(languageRule("es")));
+  assert.match(prompt.system, /do not combine their verdicts/i);
+  assert.match(prompt.system, /Do not research/);
+  assert.match(String(prompt.messages[0].content), /El dato no coincide/);
 });
 
 test("a 2-2 split asks the moderator, who receives only the answers and votes", async () => {

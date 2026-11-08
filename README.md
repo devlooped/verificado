@@ -58,7 +58,10 @@ conversation. Each answer and each vote is its own workflow step, bounded to
 240 seconds and tried once more on failure; a seat that still has no vote is
 recorded as absent. Three agreeing votes decide; otherwise, with at least three
 votes, the moderator breaks the tie from the content, the answers and the votes
-alone, without tools. Fewer than three votes fail the case, which can be retried.
+alone, without tools. When there is a majority, the moderator briefly summarizes
+the supporting votes without researching or changing the verdict; if claims were
+identified, each majority is summarized separately. Fewer than three votes fail
+the case, which can be retried.
 The answers are recorded as `quick_response` events with the pages their
 provider cited; those pages are the providers' citations, not sources reviewed
 by the panel. Every generation's request and result is kept under `quick/` in

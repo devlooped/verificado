@@ -417,6 +417,21 @@ test("a Quick check shows the content verdict and four votes with reasons collap
   assert.match(document.toString(), /Chequeo rápido/);
 });
 
+test("a Quick majority summary is visible without expanding the individual votes", () => {
+  const quick: CaseRecord = { ...c, submission: { kind: "text", text: "Una afirmación.", check: "quick" } };
+  const input: CourtEvent[] = [
+    ...COUNSEL.map((by): CourtEvent => ({ type: "content_vote", by, verdict: "falso", rationale: "Fundamento individual de " + by })),
+    { type: "content_judgment", verdict: "falso", method: "consensus", reasoning: "" },
+    { type: "case_summary", text: "La mayoría encontró que los datos contradicen la afirmación." },
+    { type: "session_closed" },
+  ];
+  const { document } = parseHTML(render(input, quick));
+  const summary = document.querySelector('[aria-labelledby="case-summary-title"]')!;
+  assert.match(summary.textContent, /Por el moderador/);
+  assert.match(summary.textContent, /La mayoría encontró que los datos contradicen la afirmación/);
+  assert.ok(!document.querySelector("figure details")!.hasAttribute("open"));
+});
+
 test("quick content chips distinguish absent votes from recorded no corresponde votes", () => {
   const input: CourtEvent[] = [
     { type: "content_vote", by: "grok", verdict: null, rationale: "No corresponde." },

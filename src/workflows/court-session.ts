@@ -4,8 +4,8 @@ import { counselModels, courtModel, DEFAULT_MODELS, MOCK_MODEL_ID, modelEffort, 
 import { playTurn } from "../court/play.ts";
 import { resolveCaseLanguage } from "../court/language.ts";
 import { holdSession } from "../court/procedure.ts";
-import { holdQuickSession, type QuickAnswer, type QuickEntry, type QuickFailure } from "../court/quick.ts";
-import { quickAnswer, quickIdentifyClaims, quickTiebreak, quickVote, simulatedQuickDependencies } from "../court/quick-play.ts";
+import { holdQuickSession, type QuickAnswer, type QuickEntry, type QuickFailure, type QuickMajority } from "../court/quick.ts";
+import { quickAnswer, quickIdentifyClaims, quickSummarize, quickTiebreak, quickVote, simulatedQuickDependencies } from "../court/quick-play.ts";
 import type { Docket, TurnOutcome, TurnSpec } from "../court/turns.ts";
 import { checkType, sharedPipeline, type CaseRecord, type Claim, type Counsel, type CourtEvent, type RecordedEvent, type Submission, type SubmissionContext } from "../domain/court.ts";
 import { languageRule } from "../domain/language.ts";
@@ -318,12 +318,21 @@ async function tiebreakQuick(caseId: string, submission: Submission, language: s
   });
 }
 
+async function summarizeQuick(caseId: string, language: string, model: CourtModel, majorities: QuickMajority[], attempt: number, simulated: boolean) {
+  "use step";
+  return observeCaseStep(caseId, "quick_summary", { "turn.attempt": attempt }, async () => {
+    const result = await quickSummarize(caseId, language, model, majorities, attempt, simulated ? simulatedQuickDependencies("summary") : undefined);
+    if ("error" in result) caseLog(caseId, "warn", "case.quick.failed", { "turn.kind": "summary", "turn.attempt": attempt });
+    return result;
+  });
+}
+
 function describeError(err: unknown): string {
   const message = typeof err === "object" && err !== null && "message" in err ? String((err as { message: unknown }).message) : String(err);
   return message.slice(0, 500);
 }
 
-export async function courtSession(caseId: string, latestPipeline = false): Promise<void> {
+export async function courtSession(caseId: string, latestPipeline = false, quickMajoritySummary = false): Promise<void> {
   "use workflow";
   let shared = false;
   try {
@@ -348,6 +357,7 @@ export async function courtSession(caseId: string, latestPipeline = false): Prom
         answer: (by, attempt, claims) => submission.identifyClaims ? answerQuick(caseId, submission, language, counsel[by], by, attempt, simulated, claims) : answerQuick(caseId, submission, language, counsel[by], by, attempt, simulated),
         vote: (by, answer, attempt, retry, claim) => claim ? voteQuick(caseId, submission, language, counsel[by], by, answer, attempt, retry, simulated, claim) : voteQuick(caseId, submission, language, counsel[by], by, answer, attempt, retry, simulated),
         tiebreak: (entries, attempt, claim) => claim ? tiebreakQuick(caseId, submission, language, models.judge, entries, attempt, simulated, claim) : tiebreakQuick(caseId, submission, language, models.judge, entries, attempt, simulated),
+        ...(quickMajoritySummary ? { summarize: (majorities: QuickMajority[], attempt: number) => summarizeQuick(caseId, language, models.judge, majorities, attempt, simulated) } : {}),
         commit: (events: readonly RecordedEvent[]) => saveEvents(caseId, [...events]),
       });
       await illustrate(caseId, simulated, models);
