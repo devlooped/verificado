@@ -4,7 +4,17 @@ The whole court runs as a Vercel Workflow. Each seat attempt is a durable step
 using AI SDK through Vercel AI Gateway. Court events are saved to Postgres in
 idempotent batches between rounds. Completed steps are replayed from the workflow
 journal; an interrupted seat attempt can run again, including its paid model and
-research calls.
+research calls. Court participant generations are capped at 32,000 output tokens
+per model call by default. `RESEARCH_CONTEXT_SIZE` overrides this for Expert
+instruction and criticism (both preparation and decision), Quick analyst answers
+and link claim identification; `DEBATE_CONTEXT_SIZE` overrides it for Expert
+debate (both preparation and decision). Intake and other Quick calls use
+`CONTEXT_SIZE`. Each phase override falls back to `CONTEXT_SIZE`, then 32,000.
+Set these variables to positive integers; they limit output, not the model's input
+context window. They do not change helper workers such as translation or search
+extraction. Already-bound preparation calls retain their original limit when
+resumed. A native research report that reaches the limit fails rather than
+silently filing a partial report.
 
 For case/run-correlated logs, workflow progress, Vercel metrics, and optional
 OpenTelemetry export, see [case processing observability](docs/observability.md).

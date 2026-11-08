@@ -127,7 +127,10 @@ export function verifyQuickAnalystResults(expectationInput: unknown, exportInput
           // Zod adds non-enumerable ~standard metadata, absent from stored JSON.
           // Project only this locally generated schema, never supplied evidence.
           messages: quickVoteMessages(prompt.messages, answer.text), output: { ...z.toJSONSchema(quickVoteSchema, { target: "draft-7" }) } };
-      equal(evidence.request.body, request, "request prompt/tools/provider configuration mismatch");
+      // Older requests have no recorded cap. New requests record a per-call
+      // setting, which is not independently pinned by the historical origin.
+      const limit = z.object({ maxOutputTokens: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional() }).passthrough().parse(evidence.request.body).maxOutputTokens;
+      equal(evidence.request.body, { ...request, ...(limit === undefined ? {} : { maxOutputTokens: limit }) }, "request prompt/tools/provider configuration mismatch");
       const stored = kind === "answer" ? storedAnswer : storedVote;
       const auditId = `quick:${by}:${kind}:0`;
       const audit = { schemaVersion: 2, id: `step:${auditId}`, kind: "model_step", at: stored.at, seat: by, phase: "quick", modelId: configured.id, effort: modelEffort(configured),

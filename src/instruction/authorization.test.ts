@@ -15,7 +15,7 @@ import { preparationDefinitions } from "./preparation.ts";
 import { MemoryOperationRepository } from "./source-store.ts";
 import { extractSource, SourceService } from "./sources.ts";
 import { nativeResearchTools, NATIVE_GENERATION_MS } from "./native-research.ts";
-import { toolSet } from "../../sandbox/harness/instruction-agent.ts";
+import { runCall, toolSet } from "../../sandbox/harness/instruction-agent.ts";
 
 const binding: SandboxBinding = { phase: "debate", seat: "grok", sessionKey: "debate:grok:preparation", phaseSessionId: "phase", expiresAt: "2026-11-06T00:00:00.000Z", revoked: false, model: { id: "fixture/model" }, gatewayTools: [], activeTurn: { id: "turn", expiresAt: "2026-11-05T23:00:00.000Z", remainingRequests: 10 } };
 const context = { phase: "debate" as const, pipelineVersion: 2, status: "in_session", phaseSessionId: "phase", activeTurnId: "turn", now: Date.parse("2026-11-05T00:00:00.000Z") };
@@ -108,6 +108,28 @@ test("broker accepts actual SDK preparation requests in every phase without rela
     });
     assert.equal(result.text, "Fixture analysis");
     assert.equal(calls, 1);
+  }
+});
+
+test("sandbox harness forwards configured output limits matching broker bindings", async (t) => {
+  for (const native of [false, true]) {
+    const model = { id: "openai/fixture" };
+    const tools = native ? nativeResearchTools(model.id, "instruction") : preparationDefinitions("instruction");
+    const snapshot: SandboxBinding = { ...binding, phase: "instruction", model, gatewayTools: tools, maxOutputTokens: 12_345 };
+    let calls = 0;
+    const mock = t.mock.method(globalThis, "fetch", async (url: string | URL | Request, init?: RequestInit) => {
+      calls++;
+      const request = new Request(url, init);
+      const body = JSON.parse(String(init?.body));
+      assert.equal(body.maxOutputTokens, 12_345);
+      validateGatewayGeneration(request, body, snapshot);
+      assert.throws(() => validateGatewayGeneration(request, { ...body, maxOutputTokens: 32_000 }, snapshot), /generation_snapshot_mismatch/);
+      return Response.json({ content: [{ type: "text", text: "Report" }], finishReason: { unified: "stop", raw: "stop" }, usage: { inputTokens: { total: 1 }, outputTokens: { total: 1 } } });
+    });
+    const result = await runCall({ caseId: "fixture", callId: "turn:0", model, system: "Research", messages: [{ role: "user", content: "Claims" }], tools, maxOutputTokens: 12_345, resultPath: "/workspace/result.json" });
+    assert.equal(result.text, "Report");
+    assert.equal(calls, 1);
+    mock.mock.restore();
   }
 });
 

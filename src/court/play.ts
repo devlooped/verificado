@@ -2,9 +2,10 @@ import { imageDescribed, type CourtEvent } from "../domain/court.ts";
 import { randomUUID } from "node:crypto";
 import { blobConfigured, writeEvidenceTree } from "../evidence/blob.ts";
 import { getImage } from "../store.ts";
-import { DEFAULT_MODELS, MOCK_MODEL_ID, modelEffort, seatModel } from "./models.ts";
+import { courtOutputPhase, DEFAULT_MODELS, MOCK_MODEL_ID, modelEffort, seatModel } from "./models.ts";
 import { runSeat, type SeatImage } from "./seat.ts";
 import { conductTurn, type Docket, type SeatId, type TurnOutcome, type TurnSpec } from "./turns.ts";
+import { turnPhase } from "../instruction/court-tools.ts";
 
 async function imagesFor(caseId: string, docket: Docket): Promise<SeatImage[]> {
   // A described image reaches seats as text in the prompt, so no seat analyzes it again.
@@ -32,6 +33,7 @@ export async function playTurn(
       role: seat === "judge" ? "moderator" : "analyst",
       model: seatModel(models, seat),
       research: spec.kind === "instruction",
+      outputPhase: courtOutputPhase(turnPhase(spec)),
       xResearcher: models["research.x"],
       prompt,
       tools,

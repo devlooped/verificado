@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { MockLanguageModelV4 } from "ai/test";
 import { MemoryArtifactStore } from "../evidence/artifacts.ts";
 import { createQuickMockModel } from "./mock.ts";
-import { courtModel } from "./models.ts";
+import { courtMaxOutputTokens, courtModel } from "./models.ts";
 import { quickAnswer, quickIdentifyClaims, quickSummarize, quickTiebreak, quickVote, type QuickPlayDependencies } from "./quick-play.ts";
 import { failed, holdQuickSession } from "./quick.ts";
 import { COUNSEL, project, type RecordedEvent, type Submission } from "../domain/court.ts";
@@ -33,6 +34,7 @@ test("an answer, its vote and a tie-break write their request, result and model 
 
   const files = await artifacts.read(CASE);
   assert.deepEqual([...files.keys()].sort(), ["answer-0", "vote-0"].flatMap((step) => [`quick/claude/${step}/request.json`, `quick/claude/${step}/result.json`]).concat(["quick/judge/tiebreak-0/request.json", "quick/judge/tiebreak-0/result.json"]).sort());
+  for (const [path, bytes] of files) if (path.endsWith("/request.json")) assert.equal(JSON.parse(new TextDecoder().decode(bytes)).maxOutputTokens, courtMaxOutputTokens(path.includes("/answer-") ? "research" : undefined));
   const request = new TextDecoder().decode(files.get("quick/claude/vote-0/request.json"));
   assert.match(request, /FACT CHECK:/);
   assert.match(request, /\(the submitted image\)/, "the image bytes stay out of request.json");
@@ -41,6 +43,36 @@ test("an answer, its vote and a tie-break write their request, result and model 
   assert.deepEqual(audit.map((a) => [a.body.kind, a.body.seat, a.body.phase, (a.body.data as { sessionId: string }).sessionId]), [
     ["model_step", "claude", "quick", "quick:claude"], ["model_step", "claude", "quick", "quick:claude"], ["model_step", "judge", "quick", "quick:judge"],
   ]);
+});
+
+test("all Quick generations send the configured output cap to the model", async (t) => {
+  const keys = ["CONTEXT_SIZE", "RESEARCH_CONTEXT_SIZE", "DEBATE_CONTEXT_SIZE"] as const;
+  const previous = keys.map(key => process.env[key]);
+  Object.assign(process.env, { CONTEXT_SIZE: "12345", RESEARCH_CONTEXT_SIZE: "24000", DEBATE_CONTEXT_SIZE: "8000" });
+  t.after(() => keys.forEach((key, index) => { if (previous[index] === undefined) delete process.env[key]; else process.env[key] = previous[index]; }));
+  const calls: number[] = [];
+  const configured = (step: "claims" | "answer" | "vote" | "tiebreak" | "summary") => {
+    const injected = deps(step);
+    const underlying = createQuickMockModel(step);
+    injected.model = new MockLanguageModelV4({ doGenerate: async (options) => {
+      calls.push(options.maxOutputTokens!);
+      return underlying.doGenerate(options);
+    } });
+    return injected;
+  };
+  const submission: Submission = { kind: "text", text: "A claim to check" };
+  const claims = await quickIdentifyClaims(CASE, submission, "es", MODEL, 0, configured("claims"));
+  assert.ok(!failed(claims));
+  const answer = await quickAnswer(CASE, submission, "es", MODEL, "claude", 0, configured("answer"));
+  assert.ok(!failed(answer));
+  const vote = await quickVote(CASE, submission, "es", MODEL, "claude", answer, 0, undefined, configured("vote"));
+  assert.ok(!failed(vote));
+  assert.ok(!failed(await quickTiebreak(CASE, submission, "es", MODEL, [{ by: "claude", answer: answer.text, vote }], 0, configured("tiebreak"))));
+  assert.ok(!failed(await quickSummarize(CASE, "es", MODEL, [{ verdict: "falso", votes: [{ by: "claude", rationale: "No" }] }], 0, configured("summary"))));
+  assert.deepEqual(calls, [12_345, 24_000, 12_345, 12_345, 12_345]);
+  const link: Submission = { kind: "link", url: "https://example.test/claim" };
+  assert.ok(!failed(await quickIdentifyClaims(CASE, link, "es", MODEL, 0, configured("claims"))));
+  assert.equal(calls.at(-1), 24_000, "link claim identification can research");
 });
 
 test("a step run again reuses the result already written instead of calling the model again", async () => {

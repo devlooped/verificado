@@ -89,6 +89,26 @@ test("real simulated Quick calls and orchestration yield a complete offline evid
   assert.equal(object(exported.analysts[0].answer.audit.body).effort, "high");
 });
 
+test("offline verification accepts historical and configured output caps without relying on the current environment", async () => {
+  const exported = await fixture();
+  const historical = clone(exported);
+  for (const analyst of historical.analysts) for (const step of [analyst.answer, analyst.vote]) delete object(step.request.body).maxOutputTokens;
+  assert.equal(verifyQuickAnalystResults(expectation(historical), historical).status, "verified-offline");
+
+  const configured = clone(exported);
+  object(configured.analysts[0].answer.request.body).maxOutputTokens = 12_345;
+  assert.equal(verifyQuickAnalystResults(expectation(configured), configured).status, "verified-offline");
+  assert.throws(() => verifyQuickAnalystResults(expectation(exported), configured), /hash mismatch/);
+  for (const value of [0, -1, 1.5, null, "32000", Number.MAX_SAFE_INTEGER + 1]) {
+    const invalid = clone(exported);
+    object(invalid.analysts[0].vote.request.body).maxOutputTokens = value;
+    assert.throws(() => verifyQuickAnalystResults(expectation(invalid), invalid));
+  }
+  const unexpected = clone(exported);
+  object(unexpected.analysts[0].answer.request.body).unrelatedOption = true;
+  assert.throws(() => verifyQuickAnalystResults(expectation(unexpected), unexpected), /request prompt/);
+});
+
 test("synthetic live-contract export preserves native tools, options, sources and untrimmed vote", async () => {
   const exported = await fixture();
   exported.origin.simulated = false;

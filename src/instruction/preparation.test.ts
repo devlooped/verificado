@@ -6,13 +6,16 @@ import { MemoryPhaseRepository, PhaseSession } from "../court/phase-session.ts";
 import { advancePreparation, deleteCaseSandboxes, NATIVE_CALL_MARGIN_MS, nativePreparationDefinitions, PREPARATION_SNAPSHOTS, PREPARATION_SYNTHESIS_MS, prepareInSandbox, SandboxCleanupBlockedError, sweepCaseSandboxes, withSandboxCleanup } from "./preparation.ts";
 
 test("preparation requires a final response, preserves checkpoints on exhaustion, and resumes the same sandbox", async () => {
-  const keys = ["INSTRUCTION_TOOL_ORIGIN", "INSTRUCTION_SANDBOX_SNAPSHOT_ID", "INSTRUCTION_SANDBOX_TEAM_ID", "INSTRUCTION_SANDBOX_PROJECT_ID"] as const;
+  const keys = ["INSTRUCTION_TOOL_ORIGIN", "INSTRUCTION_SANDBOX_SNAPSHOT_ID", "INSTRUCTION_SANDBOX_TEAM_ID", "INSTRUCTION_SANDBOX_PROJECT_ID", "CONTEXT_SIZE", "RESEARCH_CONTEXT_SIZE", "DEBATE_CONTEXT_SIZE"] as const;
   const previous = keys.map((key) => process.env[key]);
   Object.assign(process.env, { INSTRUCTION_TOOL_ORIGIN: "https://staging.example.test", INSTRUCTION_SANDBOX_SNAPSHOT_ID: "fixture-snapshot", INSTRUCTION_SANDBOX_TEAM_ID: "fixture-team", INSTRUCTION_SANDBOX_PROJECT_ID: "fixture-project" });
   try {
+    process.env.CONTEXT_SIZE = "32000";
+    process.env.RESEARCH_CONTEXT_SIZE = "32000";
+    process.env.DEBATE_CONTEXT_SIZE = "8000";
     let runs = 0, stops = 0, creates = 0, resumes = 0, harnessUploads = 0, exitCode = 0;
     let response = { messages: [{ role: "assistant", content: "Still working" }], text: "unfinished draft", finishReason: "tool-calls" };
-    const tasks: Array<{ callId: string; toolChoice: string; timeoutMs: number }> = [];
+    const tasks: Array<{ callId: string; toolChoice: string; timeoutMs: number; maxOutputTokens: number | null }> = [];
     let synthesize = false, interruptRead = false;
     let resumeRequested = false;
     const sandbox = {
@@ -62,6 +65,7 @@ test("preparation requires a final response, preserves checkpoints on exhaustion
     await session.begin("exhausted-turn", [], "Prepare");
     await assert.rejects(prepareInSandbox(session, deps), (error) => FatalError.is(error) && /budget exhausted without a final response/.test(error.message));
     assert.equal(runs, 8);
+    assert.ok(tasks.every((task) => task.maxOutputTokens === 32_000));
     assert.equal(session.state.turns["exhausted-turn"].complete, false);
     assert.equal(session.state.turns["exhausted-turn"].done, false);
     assert.equal(session.state.activeTurn, undefined, "failed preparation suspends its action grant");
@@ -94,11 +98,32 @@ test("preparation requires a final response, preserves checkpoints on exhaustion
     const replayTurn = await interrupted.begin("turn", [], "Prepare");
     replayTurn.expiresAt = new Date(Date.now() + 30_000).toISOString();
     await interrupted.save();
-    assert.equal(await prepareInSandbox(interrupted, deps), "Final analysis");
+    const previousLimit = process.env.RESEARCH_CONTEXT_SIZE;
+    try {
+      process.env.RESEARCH_CONTEXT_SIZE = "12345";
+      assert.equal(await prepareInSandbox(interrupted, deps), "Final analysis");
+    } finally {
+      if (previousLimit === undefined) delete process.env.RESEARCH_CONTEXT_SIZE; else process.env.RESEARCH_CONTEXT_SIZE = previousLimit;
+    }
+    assert.ok(tasks.slice(beforeInterruption).every((task) => task.maxOutputTokens === 32_000), "a resumed binding keeps its original cap");
     assert.deepEqual(tasks.slice(beforeInterruption).map((task) => task.toolChoice), ["auto", "auto", "none"]);
     assert.equal(tasks[beforeInterruption].callId, tasks[beforeInterruption + 1].callId, "replay must retain the call ID and tool choice for the broker's request hash");
     assert.equal(resumes, 1, "the retry resumes the VM of the interrupted call");
     assert.equal(replayTurn.preparationToolChoice, undefined);
+
+    const legacy = await PhaseSession.open("fixture-legacy", initial, repository);
+    const legacyTurn = await legacy.begin("turn", [], "Prepare");
+    legacyTurn.preparationBound = true; // An existing pre-configuration binding.
+    legacyTurn.expiresAt = new Date(Date.now() + 30_000).toISOString();
+    assert.equal(await prepareInSandbox(legacy, deps), "Final analysis");
+    assert.equal(tasks.at(-1)?.maxOutputTokens, 4096);
+
+    const debate = await PhaseSession.open("fixture-debate", { ...initial, phase: "debate" }, repository);
+    const closed = { type: "instruction_closed" as const, seq: 1, at: "2026-11-07T00:00:00.000Z" };
+    const debateTurn = await debate.begin("turn", [closed], "Prepare");
+    debateTurn.expiresAt = new Date(Date.now() + 30_000).toISOString();
+    assert.equal(await prepareInSandbox(debate, deps), "Final analysis");
+    assert.equal(tasks.at(-1)?.maxOutputTokens, 8000, "debate preparation uses its phase limit");
 
     const nearDeadline = await PhaseSession.open("fixture-deadline", initial, repository);
     const deadlineTurn = await nearDeadline.begin("turn", [], "Prepare");
@@ -317,7 +342,7 @@ test("the sweep retains failed, resolved, orphaned and ambiguously tagged snapsh
 
 
 test("pipeline 3 prepares with one native research call and files nothing when it times out", async () => {
-  const keys = ["INSTRUCTION_TOOL_ORIGIN", "INSTRUCTION_SANDBOX_SNAPSHOT_ID", "INSTRUCTION_SANDBOX_TEAM_ID", "INSTRUCTION_SANDBOX_PROJECT_ID"] as const;
+  const keys = ["INSTRUCTION_TOOL_ORIGIN", "INSTRUCTION_SANDBOX_SNAPSHOT_ID", "INSTRUCTION_SANDBOX_TEAM_ID", "INSTRUCTION_SANDBOX_PROJECT_ID", "CONTEXT_SIZE", "RESEARCH_CONTEXT_SIZE"] as const;
   const previous = keys.map((key) => process.env[key]);
   Object.assign(process.env, { INSTRUCTION_TOOL_ORIGIN: "https://staging.example.test", INSTRUCTION_SANDBOX_SNAPSHOT_ID: "fixture-snapshot", INSTRUCTION_SANDBOX_TEAM_ID: "fixture-team", INSTRUCTION_SANDBOX_PROJECT_ID: "fixture-project" });
   try {
@@ -342,17 +367,32 @@ test("pipeline 3 prepares with one native research call and files nothing when i
     const model = { id: "openai/fixture" };
     const native = nativePreparationDefinitions("instruction", model.id);
     const initial = { phase: "instruction" as const, seat: "chatgpt" as const, channel: "preparation" as const, model, system: "fixture", tools: JSON.stringify(native), initial: "Claims" };
+    process.env.CONTEXT_SIZE = "9000";
+    process.env.RESEARCH_CONTEXT_SIZE = "12345";
     const session = await PhaseSession.open("fixture-native", initial, repository);
     await session.begin("turn", [], "Research");
     assert.equal(await prepareInSandbox(session, deps), "Report with quotes");
     assert.equal(runs, 1, "native research is one call, without a step loop");
     assert.deepEqual(tasks[0]!.tools, native);
-    assert.equal(tasks[0]!.maxOutputTokens, null, "native research has no output cap");
+    assert.equal(tasks[0]!.maxOutputTokens, 12_345);
     assert.equal(tasks[0]!.toolChoice, "auto");
     assert.ok(tasks[0]!.timeoutMs > 250_000 && tasks[0]!.timeoutMs <= 300_000 - NATIVE_CALL_MARGIN_MS, "the call may use the turn, less its margin");
-    assert.deepEqual(bindings[0], { ...bindings[0], gatewayTools: native, maxOutputTokens: null });
+    assert.deepEqual(bindings[0], { ...bindings[0], gatewayTools: native, maxOutputTokens: 12_345 });
     assert.equal(session.state.turns.turn!.complete, true);
     assert.equal(session.state.turns.turn!.timedOut, undefined);
+
+    const legacy = await PhaseSession.open("fixture-native-legacy", initial, repository);
+    const legacyTurn = await legacy.begin("turn", [], "Research");
+    legacyTurn.preparationBound = true;
+    assert.equal(await prepareInSandbox(legacy, deps), "Report with quotes");
+    assert.equal(tasks.at(-1)!.maxOutputTokens, null, "existing native bindings remain uncapped");
+    assert.equal(bindings.length, 1, "an existing binding is not replaced");
+
+    response = { messages: [{ role: "assistant", content: "Incomplete report" }], text: "Incomplete report", finishReason: "length", sources: [], searches: 1 };
+    const truncated = await PhaseSession.open("fixture-native-truncated", initial, repository);
+    await truncated.begin("turn", [], "Research");
+    await assert.rejects(prepareInSandbox(truncated, deps), /output token limit reached/);
+    assert.equal(truncated.state.turns.turn!.complete, false, "a truncated report is not treated as complete");
 
     response = { messages: [], text: "", finishReason: "timeout" };
     const slow = await PhaseSession.open("fixture-native-timeout", initial, repository);

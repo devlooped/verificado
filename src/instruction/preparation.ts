@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { ModelMessage } from "ai";
 import { FatalError } from "workflow";
 import type { PhaseSession } from "../court/phase-session.ts";
+import { courtMaxOutputTokens, courtOutputPhase } from "../court/models.ts";
 import { instructionSandboxLaunch } from "../evidence/broker.ts";
 import { caseSandboxNames, saveSandboxBinding } from "../store.ts";
 import { assertSandboxCleanupSafe, SandboxCleanupBlockedError } from "../lib/sandbox-cleanup.ts";
@@ -130,13 +131,14 @@ export async function advancePreparation(session: PhaseSession, deps: Preparatio
       if (turn.steps >= 8 || Date.now() >= Date.parse(turn.expiresAt)) throw exhausted(session, turn);
       const sandbox = await openSandbox(session, deps, opened);
       if (!turn.preparationBound) {
+        const maxOutputTokens = courtMaxOutputTokens(courtOutputPhase(session.state.phase));
         await deps.bind(session.caseId, sandbox.name, {
           phase: session.state.phase, seat: session.state.seat, sessionKey: session.key, phaseSessionId: session.state.id,
           expiresAt: new Date(Date.now() + 24 * 60 * 60_000).toISOString(), revoked: false, model: session.state.model, gatewayTools: native ?? preparationDefinitions(session.state.phase),
-          // A native research report carries every quote: its call has no output cap.
-          ...(native ? { maxOutputTokens: null } : {}),
+          maxOutputTokens,
           activeTurn: { id: turn.id, expiresAt: turn.expiresAt, remainingRequests: 60 },
         });
+        turn.preparationMaxOutputTokens = maxOutputTokens;
         turn.preparationBound = true;
         await session.save();
       }
@@ -154,7 +156,8 @@ export async function advancePreparation(session: PhaseSession, deps: Preparatio
       const commandTimeoutMs = native ? Math.max(1, remainingMs - NATIVE_CALL_MARGIN_MS + 5000)
         : Math.max(1, Math.min(165_000, toolChoice === "auto" ? remainingMs - PREPARATION_SYNTHESIS_MS : remainingMs));
       const timeoutMs = native ? Math.max(1, remainingMs - NATIVE_CALL_MARGIN_MS) : Math.max(1, Math.min(150_000, commandTimeoutMs - 5000));
-      await sandbox.writeFiles([{ path: "/workspace/task.json", content: JSON.stringify({ caseId: session.caseId, callId, model: session.state.model, system: session.state.system, messages: session.state.messages, tools: native ?? preparationDefinitions(session.state.phase), toolChoice, timeoutMs, ...(native ? { maxOutputTokens: null } : {}), resultPath }) }]);
+      // Existing bindings predate this setting and must keep their original cap.
+      await sandbox.writeFiles([{ path: "/workspace/task.json", content: JSON.stringify({ caseId: session.caseId, callId, model: session.state.model, system: session.state.system, messages: session.state.messages, tools: native ?? preparationDefinitions(session.state.phase), toolChoice, timeoutMs, maxOutputTokens: turn.preparationMaxOutputTokens ?? (native ? null : 4096), resultPath }) }]);
       command = await sandbox.runCommand({ cmd: "node", args: ["--import", "/opt/evidence-harness/node_modules/tsx/dist/loader.mjs", "/opt/evidence-harness/instruction-agent.ts", "/workspace/task.json"], cwd: "/workspace", timeoutMs: commandTimeoutMs, detached: true });
       turn.preparationCommand = { id: command.cmdId, resultPath };
       await session.save();
@@ -177,6 +180,7 @@ export async function advancePreparation(session: PhaseSession, deps: Preparatio
       delete turn.preparationToolChoice;
       delete turn.preparationCommand;
       if (result.finishReason === "timeout") return await timedOut();
+      if (result.finishReason === "length") throw new FatalError("Preparation ended without a complete final response; output token limit reached");
       turn.draft = result.text;
       turn.done = true;
       await session.append(result.messages);

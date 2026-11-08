@@ -1,11 +1,27 @@
 import type { generateText } from "ai";
 import type { Counsel, ModelSnapshot } from "../domain/court.ts";
+import type { InstructionPhase } from "../instruction/authorization.ts";
 
 export interface CourtModel {
   id: string;
   providerOptions?: Parameters<typeof generateText>[0]["providerOptions"];
 }
 
+// These limits apply to output per generation, not the input context window.
+export type CourtOutputPhase = "research" | "debate";
+export function courtOutputPhase(phase: InstructionPhase): CourtOutputPhase | undefined {
+  return phase === "debate" ? "debate" : phase === "instruction" || phase === "criticism" ? "research" : undefined;
+}
+
+export function courtMaxOutputTokens(phase?: CourtOutputPhase, env: Readonly<Record<string, string | undefined>> = process.env): number {
+  const override = phase === "research" ? "RESEARCH_CONTEXT_SIZE" : phase === "debate" ? "DEBATE_CONTEXT_SIZE" : undefined;
+  const key = override && env[override] ? override : "CONTEXT_SIZE";
+  const value = env[key];
+  if (value === undefined || value === "") return 32_000;
+  const tokens = Number(value);
+  if (!/^\d+$/.test(value) || !Number.isSafeInteger(tokens) || tokens < 1) throw new Error(`${key} must be a positive integer`);
+  return tokens;
+}
 export const MOCK_MODEL_ID = "court-fixture";
 
 // Only report explicitly configured effort; provider defaults are not known.

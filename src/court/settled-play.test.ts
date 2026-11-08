@@ -10,13 +10,19 @@ import { SourceService, extractSource } from "../instruction/sources.ts";
 import { mockResearchWorker } from "../instruction/mock.ts";
 import { collectEvidence, fetchProposedUrls, rejectionRecord } from "../instruction/collection.ts";
 import { collectProposedBatches } from "../instruction/proposed-urls.ts";
-import { DEFAULT_MODELS, modelSnapshot } from "./models.ts";
+import { turnPhase } from "../instruction/court-tools.ts";
+import { courtMaxOutputTokens, courtOutputPhase, DEFAULT_MODELS, modelSnapshot } from "./models.ts";
 import { createMockSeat } from "./mock.ts";
 import { MemoryPhaseRepository } from "./phase-session.ts";
 import { holdSession } from "./procedure.ts";
 import { advanceSharedTurn, playSharedTurn } from "./settled-play.ts";
 
-test("four independent source-backed analysts settle once, then every debate path is corpus-only and sessions continue", async () => {
+test("four independent source-backed analysts settle once, then every debate path is corpus-only and sessions continue", async (t) => {
+  const keys = ["CONTEXT_SIZE", "RESEARCH_CONTEXT_SIZE", "DEBATE_CONTEXT_SIZE"] as const;
+  const previous = keys.map(key => process.env[key]);
+  Object.assign(process.env, { CONTEXT_SIZE: "12345", RESEARCH_CONTEXT_SIZE: "24000", DEBATE_CONTEXT_SIZE: "8000" });
+  t.after(() => keys.forEach((key, index) => { if (previous[index] === undefined) delete process.env[key]; else process.env[key] = previous[index]; }));
+  const limits = new Set<number>();
   const artifacts = new MemoryArtifactStore(), operations = new MemoryOperationRepository(), repository = new MemoryPhaseRepository();
   const submission = { kind: "text" as const, text: "SIMULACIÓN LOCAL: afirmación para verificar.", resolvedLanguage: "es" };
   const stored: CaseRecord = { id: "fixture", createdAt: "2026-11-05T00:00:00.000Z", status: "in_session", pipelineVersion: 2, submission, models: modelSnapshot(DEFAULT_MODELS) };
@@ -37,6 +43,8 @@ test("four independent source-backed analysts settle once, then every debate pat
       let generations = 0;
       const model = new MockLanguageModelV4({ doGenerate: async (options) => {
         generations++;
+        assert.equal(options.maxOutputTokens, courtMaxOutputTokens(courtOutputPhase(turnPhase(spec))));
+        limits.add(options.maxOutputTokens!);
         const phase = record.some((event) => event.type === "instruction_closed") ? "debate" : "instruction";
         requests.push({ phase, seat: "counsel" in spec ? spec.counsel : "judge", prompt: options.prompt, tools: (options.tools ?? []).map((tool) => tool.name), providerOptions: options.providerOptions });
         return mock.doGenerate(options);
@@ -56,6 +64,7 @@ test("four independent source-backed analysts settle once, then every debate pat
       }
     },
   });
+  assert.deepEqual([...limits].sort((a, b) => a - b), [8000, 12345, 24000]);
   assert.equal(events.at(-1)?.type, "session_closed");
   assert.equal(downloads, 3, "four analysts reuse the same three source acquisitions");
   assert.equal(extraction, 3);

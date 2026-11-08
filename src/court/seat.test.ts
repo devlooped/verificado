@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { MockLanguageModelV4 } from "ai/test";
 import { z } from "zod";
-import { DEFAULT_MODELS, JUDGE_MODEL } from "./models.ts";
+import { courtMaxOutputTokens, DEFAULT_MODELS, JUDGE_MODEL } from "./models.ts";
 
 const xResearcher = DEFAULT_MODELS["research.x"];
 import { runSeat } from "./seat.ts";
@@ -42,11 +42,25 @@ test("the AI tool loop returns validation and court rejections to the model, the
   }, model);
   assert.equal(committed, 1);
   assert.equal(model.doGenerateCalls.length, 3, "completion must not trigger another model request");
+  assert.ok(model.doGenerateCalls.every((call) => call.maxOutputTokens === courtMaxOutputTokens()));
   assert.match(JSON.stringify(model.doGenerateCalls[1].prompt), /error/);
   assert.match(JSON.stringify(model.doGenerateCalls[2].prompt), /Only one item allowed/);
   assert.deepEqual(model.doGenerateCalls[0].providerOptions, JUDGE_MODEL.providerOptions);
   assert.deepEqual(model.doGenerateCalls[0].toolChoice, { type: "required" });
   assert.deepEqual(model.doGenerateCalls[0].tools?.map((t) => t.name).sort(), ["record", "web_fetch"]);
+});
+
+test("legacy seats use research and debate output overrides", async (t) => {
+  const keys = ["CONTEXT_SIZE", "RESEARCH_CONTEXT_SIZE", "DEBATE_CONTEXT_SIZE"] as const;
+  const previous = keys.map(key => process.env[key]);
+  Object.assign(process.env, { CONTEXT_SIZE: "10000", RESEARCH_CONTEXT_SIZE: "24000", DEBATE_CONTEXT_SIZE: "8000" });
+  t.after(() => keys.forEach((key, index) => { if (previous[index] === undefined) delete process.env[key]; else process.env[key] = previous[index]; }));
+  for (const [research, outputPhase, expected] of [[true, undefined, 24000], [false, "research", 24000], [false, "debate", 8000], [false, undefined, 10000]] as const) {
+    const model = new MockLanguageModelV4({ doGenerate: call("record", { amount: 1 }) });
+    await runSeat({ model: JUDGE_MODEL, xResearcher, research, outputPhase, prompt: "Record", done: () => true,
+      tools: { record: tool("Record", z.object({ amount: z.number() }), () => "Recorded") } }, model);
+    assert.equal(model.doGenerateCalls[0].maxOutputTokens, expected);
+  }
 });
 
 test("an image submission is sent as binary image input and the judge can enter claims", async () => {

@@ -1,5 +1,5 @@
 import { gateway, generateText, stepCountIs, type LanguageModel } from "ai";
-import type { CourtModel } from "./models.ts";
+import { courtMaxOutputTokens, type CourtModel, type CourtOutputPhase } from "./models.ts";
 import { createMockSeat, type MockTurn } from "./mock.ts";
 import { researchTools } from "./research.ts";
 import { toAiTools, type Toolset } from "./toolset.ts";
@@ -16,6 +16,7 @@ export interface SeatRun {
   role?: UsageRole;
   model: CourtModel;
   research: boolean;
+  outputPhase?: CourtOutputPhase;
   // The research.x role, which runs x_search for any seat.
   xResearcher: CourtModel;
   prompt: string;
@@ -33,6 +34,7 @@ export async function runSeat(run: SeatRun, model?: LanguageModel): Promise<void
   await generateText({
     model: model ?? mock?.model ?? gateway(run.model.id),
     providerOptions: run.model.providerOptions,
+    maxOutputTokens: courtMaxOutputTokens(run.outputPhase ?? (run.research ? "research" : undefined)),
     messages: [{
       role: "user",
       content: [

@@ -7,7 +7,7 @@ import { nativeResearchTools } from "../instruction/native-research.ts";
 import { mockInstructionArtifacts } from "../instruction/mock.ts";
 import { getImage, saveCaseAuditRecord } from "../store.ts";
 import { createQuickMockModel } from "./mock.ts";
-import { MOCK_MODEL_ID, modelEffort, withoutEffort, type CourtModel } from "./models.ts";
+import { courtMaxOutputTokens, MOCK_MODEL_ID, modelEffort, withoutEffort, type CourtModel, type CourtOutputPhase } from "./models.ts";
 import { quickClaimsPrompt, quickClaimsSchema, quickPrompt, quickSummaryPrompt, quickTiebreakPrompt, quickTiebreakSchema, quickVoteMessages, quickVoteSchema, type QuickAnswer, type QuickClaims, type QuickDecision, type QuickEntry, type QuickFailure, type QuickImage, type QuickMajority, type QuickSummary, type QuickVote } from "./quick.ts";
 
 // The live calls of a Quick check, one per workflow step. Each writes its
@@ -69,18 +69,19 @@ async function readStored(caseId: string, path: string, deps: QuickPlayDependenc
 // reused, so a completed paid call is not paid again; otherwise the model is
 // called, and its failure is a result too, for the orchestration to retry.
 async function generation(caseId: string, deps: QuickPlayDependencies, call: {
-  seat: Seat; step: "claims" | "answer" | "vote" | "tiebreak" | "summary"; attempt: number; sequence: number; model: CourtModel; claim?: Claim;
-  request: () => Promise<Record<string, unknown>>; generate: () => Promise<Omit<Stored, "at">>;
+  seat: Seat; step: "claims" | "answer" | "vote" | "tiebreak" | "summary"; attempt: number; sequence: number; model: CourtModel; claim?: Claim; outputPhase?: CourtOutputPhase;
+  request: () => Promise<Record<string, unknown>>; generate: (maxOutputTokens: number) => Promise<Omit<Stored, "at">>;
 }): Promise<Stored> {
   const root = `quick/${call.seat}/${call.claim ? "claims/" + call.claim.id + "/" : ""}${call.step}-${call.attempt}`;
   const requestPath = `${root}/request.json`, resultPath = `${root}/result.json`;
   let result = await readStored(caseId, resultPath, deps);
   if (!result) {
     const request = await call.request();
+    const maxOutputTokens = courtMaxOutputTokens(call.outputPhase);
     let generated: Omit<Stored, "at">;
-    try { generated = await call.generate(); } catch (error) { generated = { error: message(error) }; }
+    try { generated = await call.generate(maxOutputTokens); } catch (error) { generated = { error: message(error) }; }
     result = { at: new Date().toISOString(), ...generated };
-    await deps.artifacts.write(caseId, new Map([[requestPath, JSON.stringify({ modelId: call.model.id, ...request })], [resultPath, JSON.stringify(result)]]));
+    await deps.artifacts.write(caseId, new Map([[requestPath, JSON.stringify({ modelId: call.model.id, maxOutputTokens, ...request })], [resultPath, JSON.stringify(result)]]));
   }
   const sessionId = `quick:${call.seat}${call.claim ? ":claim:" + call.claim.id : ""}`;
   const id = `${sessionId}:${call.step}:${call.attempt}`;
@@ -99,12 +100,12 @@ export async function quickIdentifyClaims(caseId: string, submission: Submission
   const prompt = quickClaimsPrompt(submission, language, await image(caseId, submission, deps));
   const native = !deps.model && submission.kind === "link" ? nativeTools(model.id) : undefined;
   const result = await generation(caseId, deps, {
-    seat: "judge", step: "claims", attempt, sequence: attempt, model,
+    seat: "judge", step: "claims", attempt, sequence: attempt, model, outputPhase: submission.kind === "link" ? "research" : undefined,
     request: async () => ({ providerOptions: model.providerOptions, system: prompt.system, messages: withoutImages(prompt.messages), tools: native?.definitions ?? [], output: z.toJSONSchema(quickClaimsSchema, { target: "draft-7" }) }),
-    generate: async () => {
+    generate: async (maxOutputTokens) => {
       try {
         const generated = await generateText({ model: deps.model ?? gateway(model.id), providerOptions: model.providerOptions, system: prompt.system, messages: prompt.messages,
-          ...(native ? { tools: native.tools } : {}), output: Output.object({ schema: quickClaimsSchema }), stopWhen: stepCountIs(1), maxRetries: 0, abortSignal: AbortSignal.timeout(QUICK_ANSWER_MS) });
+          ...(native ? { tools: native.tools } : {}), output: Output.object({ schema: quickClaimsSchema }), maxOutputTokens, stopWhen: stepCountIs(1), maxRetries: 0, abortSignal: AbortSignal.timeout(QUICK_ANSWER_MS) });
         return { output: generated.output, text: generated.text, messages: generated.responseMessages, usage: generated.usage };
       } catch (error) {
         if (!NoObjectGeneratedError.isInstance(error)) throw error;
@@ -121,11 +122,11 @@ export async function quickAnswer(caseId: string, submission: Submission, langua
   const prompt = quickPrompt(submission, language, await image(caseId, submission, deps), claims);
   const native = deps.model ? undefined : nativeTools(model.id);
   const result = await generation(caseId, deps, {
-    seat: by, step: "answer", attempt, sequence: attempt, model,
+    seat: by, step: "answer", attempt, sequence: attempt, model, outputPhase: "research",
     request: async () => ({ providerOptions: model.providerOptions, system: prompt.system, messages: withoutImages(prompt.messages), tools: native?.definitions ?? [] }),
-    generate: async () => {
+    generate: async (maxOutputTokens) => {
       const generated = await generateText({ model: deps.model ?? gateway(model.id), providerOptions: model.providerOptions, system: prompt.system, messages: prompt.messages,
-        ...(native ? { tools: native.tools } : {}), stopWhen: stepCountIs(1), maxRetries: 0, abortSignal: AbortSignal.timeout(QUICK_ANSWER_MS) });
+        ...(native ? { tools: native.tools } : {}), maxOutputTokens, stopWhen: stepCountIs(1), maxRetries: 0, abortSignal: AbortSignal.timeout(QUICK_ANSWER_MS) });
       const text = generated.text.trim();
       const answer = { messages: generated.responseMessages, usage: generated.usage, finishReason: generated.finishReason, sources: citedSources(generated.sources) };
       return text ? { ...answer, text } : { ...answer, error: "empty answer (" + generated.finishReason + ")" };
@@ -144,10 +145,10 @@ export async function quickVote(caseId: string, submission: Submission, language
   const result = await generation(caseId, deps, {
     seat: by, step: "vote", attempt, sequence: (claim ? 0 : 2) + attempt, model, claim,
     request: async () => ({ ...reasoning, system: prompt.system, messages: withoutImages(messages), output: z.toJSONSchema(quickVoteSchema, { target: "draft-7" }) }),
-    generate: async () => {
+    generate: async (maxOutputTokens) => {
       try {
         const generated = await generateText({ model: deps.model ?? gateway(model.id), ...reasoning, system: prompt.system, messages, output: Output.object({ schema: quickVoteSchema }),
-          stopWhen: stepCountIs(1), maxRetries: 0, abortSignal: AbortSignal.timeout(QUICK_VOTE_MS) });
+          maxOutputTokens, stopWhen: stepCountIs(1), maxRetries: 0, abortSignal: AbortSignal.timeout(QUICK_VOTE_MS) });
         return { output: generated.output, text: generated.text, messages: generated.responseMessages, usage: generated.usage };
       } catch (error) {
         // An answer that does not parse is the seat's to correct.
@@ -168,10 +169,10 @@ export async function quickTiebreak(caseId: string, submission: Submission, lang
   const result = await generation(caseId, deps, {
     seat: "judge", step: "tiebreak", attempt, sequence: (submission.identifyClaims && !claim ? 2 : 0) + attempt, model, claim,
     request: async () => ({ providerOptions: model.providerOptions, system: prompt.system, messages: withoutImages(prompt.messages), output: z.toJSONSchema(quickTiebreakSchema, { target: "draft-7" }) }),
-    generate: async () => {
+    generate: async (maxOutputTokens) => {
       try {
         const generated = await generateText({ model: deps.model ?? gateway(model.id), providerOptions: model.providerOptions, system: prompt.system, messages: prompt.messages,
-          output: Output.object({ schema: quickTiebreakSchema }), stopWhen: stepCountIs(1), maxRetries: 0, abortSignal: AbortSignal.timeout(QUICK_ANSWER_MS) });
+          output: Output.object({ schema: quickTiebreakSchema }), maxOutputTokens, stopWhen: stepCountIs(1), maxRetries: 0, abortSignal: AbortSignal.timeout(QUICK_ANSWER_MS) });
         return { output: generated.output, text: generated.text, messages: generated.responseMessages, usage: generated.usage };
       } catch (error) {
         if (!NoObjectGeneratedError.isInstance(error)) throw error;
@@ -189,9 +190,9 @@ export async function quickSummarize(caseId: string, language: string, model: Co
   const result = await generation(caseId, deps, {
     seat: "judge", step: "summary", attempt, sequence: 4 + attempt, model,
     request: async () => ({ providerOptions: model.providerOptions, system: prompt.system, messages: prompt.messages, tools: [] }),
-    generate: async () => {
+    generate: async (maxOutputTokens) => {
       const generated = await generateText({ model: deps.model ?? gateway(model.id), providerOptions: model.providerOptions, system: prompt.system, messages: prompt.messages,
-        stopWhen: stepCountIs(1), maxRetries: 0, abortSignal: AbortSignal.timeout(QUICK_ANSWER_MS) });
+        maxOutputTokens, stopWhen: stepCountIs(1), maxRetries: 0, abortSignal: AbortSignal.timeout(QUICK_ANSWER_MS) });
       const text = generated.text.trim();
       return text ? { text, messages: generated.responseMessages, usage: generated.usage } : { error: "empty summary", usage: generated.usage };
     },

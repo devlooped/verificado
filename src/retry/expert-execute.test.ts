@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { MockLanguageModelV4 } from "ai/test";
 import { createMockSeat, createQuickMockModel } from "../court/mock.ts";
 import type { Submission } from "../domain/court.ts";
 import { continuationHash } from "../domain/continuation.ts";
@@ -12,6 +13,7 @@ import { retryExpertFixtureCreation } from "./test-fixture.ts";
 import { nextRetryExpertProcedurePlan } from "./expert-procedure.ts";
 import { executeRetryExpertUnit, type RetryExpertEffectAdapters } from "./expert-execute.ts";
 import { performRetryExpertCourtTool } from "./expert-tool.ts";
+import { generateRetryExpertText } from "./expert-turn.ts";
 
 async function fixture() {
   const creation = retryExpertFixtureCreation("expert-dispatch"), repo = new MemoryRetryRepository();
@@ -27,7 +29,11 @@ async function fixture() {
   return { repo, fence, submission: creation.configuration.submission as Submission };
 }
 
-test("new Expert dispatch records every generation/normalization before real local court application", async () => {
+test("new Expert dispatch records every generation/normalization before real local court application", async (t) => {
+  const previous = process.env.CONTEXT_SIZE;
+  process.env.CONTEXT_SIZE = "12345";
+  t.after(() => { if (previous === undefined) delete process.env.CONTEXT_SIZE; else process.env.CONTEXT_SIZE = previous; });
+  const limits: number[] = [];
   const { repo, fence, submission } = await fixture(), calls = new Map<string, number>();
   const decision = createMockSeat({ spec: { kind: "intake" }, record: [], submission, native: true }, false).model;
   const check = async (spec: RetryUnitSpec) => {
@@ -37,7 +43,11 @@ test("new Expert dispatch records every generation/normalization before real loc
     calls.set(spec.key, (calls.get(spec.key) ?? 0) + 1);
   };
   const adapters: RetryExpertEffectAdapters = {
-    model(spec) { calls.set(spec.key, (calls.get(spec.key) ?? 0) + 1); return (spec.input as { payload: { channel: string } }).payload.channel === "preparation" ? createQuickMockModel("answer") : decision; },
+    model(spec) {
+      calls.set(spec.key, (calls.get(spec.key) ?? 0) + 1);
+      const underlying = (spec.input as { payload: { channel: string } }).payload.channel === "preparation" ? createQuickMockModel("answer") : decision;
+      return new MockLanguageModelV4({ doGenerate: async (options) => { limits.push(options.maxOutputTokens!); return underlying.doGenerate(options); } });
+    },
     async normalize(spec) { await check(spec); return { body: (spec.input as { payload: { text: string } }).payload.text }; },
     async tool(spec) { await check(spec); return performRetryExpertCourtTool(spec); },
   };
@@ -55,9 +65,26 @@ test("new Expert dispatch records every generation/normalization before real loc
   const events = await repo.readEvents(fence.caseId);
   assert.equal(events.filter(event => event.type === "claims_entered").length, 1);
   assert.ok([...calls.values()].every(count => count === 1));
+  assert.ok(limits.length > 0 && limits.every(limit => limit === 12_345));
   const record = (await repo.read(fence.caseId))!;
   assert.equal(record.units.filter(unit => unit.kind === "expert.turn.normalize").length, 2);
   assert.ok(record.units.some(unit => unit.kind === "expert.turn.tool" && unit.effect === "pure"));
+});
+
+test("Expert retry dispatch uses the phase-specific output limit", async (t) => {
+  const keys = ["CONTEXT_SIZE", "RESEARCH_CONTEXT_SIZE", "DEBATE_CONTEXT_SIZE"] as const;
+  const previous = keys.map(key => process.env[key]);
+  Object.assign(process.env, { CONTEXT_SIZE: "10000", RESEARCH_CONTEXT_SIZE: "24000", DEBATE_CONTEXT_SIZE: "8000" });
+  t.after(() => keys.forEach((key, index) => { if (previous[index] === undefined) delete process.env[key]; else process.env[key] = previous[index]; }));
+  for (const [kind, expected] of [["intake", 10000], ["instruction", 24000], ["source_review", 24000], ["statement", 8000]] as const) {
+    const underlying = createQuickMockModel("answer");
+    const model = new MockLanguageModelV4({ doGenerate: async options => { assert.equal(options.maxOutputTokens, expected); return underlying.doGenerate(options); } });
+    const spec = { kind: "expert.turn.generation", effect: "external", input: { task: { kind: "turn", spec: { kind } }, model: { id: "fixture/model" },
+      payload: { system: "Fixture", messages: [{ role: "user", content: "Check" }], mode: "reasoning", tools: {},
+        budget: { expiresAt: new Date(Date.now() + 60_000).toISOString(), maxCalls: 1, timeoutMs: 10000 }, outputSchema: null } } } as unknown as RetryUnitSpec;
+    await generateRetryExpertText(spec, model);
+    assert.equal(model.doGenerateCalls.length, 1);
+  }
 });
 
 test("missing adapters, forged prompts and stale fences cannot dispatch a provider", async () => {

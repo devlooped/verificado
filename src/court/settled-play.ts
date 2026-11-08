@@ -12,7 +12,7 @@ import { advancePreparation, nativePreparationDefinitions, preparationDefinition
 import { normalizeOrKeep, type SourceService } from "../instruction/sources.ts";
 import { executeSourceTool, SourceToolSchemas, sourceToolsFor } from "../instruction/tools.ts";
 import { getCase, recordCaseToolActivity, saveCaseAuditRecord } from "../store.ts";
-import { modelEffort, seatModel, withoutEffort } from "./models.ts";
+import { courtMaxOutputTokens, courtOutputPhase, modelEffort, seatModel, withoutEffort } from "./models.ts";
 import { PhaseSession, phaseSystem, type PhaseRepository, type PhaseTurn } from "./phase-session.ts";
 import { seatOf, type Docket, type TurnOutcome, type TurnSpec } from "./turns.ts";
 
@@ -182,9 +182,10 @@ export async function advanceSharedTurn(caseId: string, docket: Docket, spec: Tu
         // The typed answer only copies the decision already reasoned: no thinking,
         // or the least the model allows (Claude Opus cannot turn it off).
         const reasoning = stage === "typed" ? { providerOptions: withoutEffort(session.state.model.providerOptions), reasoning: "none" as const } : { providerOptions: session.state.model.providerOptions };
-        const request = JSON.stringify({ modelId: model.id, ...reasoning, system: session.state.system, messages: session.state.messages, ...(stage === "typed" ? { output: schemas.output } : stage === "tools" ? { tools: schemas } : {}) });
+        const maxOutputTokens = courtMaxOutputTokens(courtOutputPhase(phase));
+        const request = JSON.stringify({ modelId: model.id, maxOutputTokens, ...reasoning, system: session.state.system, messages: session.state.messages, ...(stage === "typed" ? { output: schemas.output } : stage === "tools" ? { tools: schemas } : {}) });
         const common = { model: injected?.model ?? gateway(model.id), ...reasoning,
-          system: session.state.system, messages: session.state.messages, stopWhen: stepCountIs(1), maxRetries: 0,
+          system: session.state.system, messages: session.state.messages, maxOutputTokens, stopWhen: stepCountIs(1), maxRetries: 0,
           abortSignal: AbortSignal.timeout(Math.max(1, Math.min(stage === "reasoning" ? REASONING_GENERATION_MS : DECISION_GENERATION_MS, Date.parse(turn.expiresAt) - Date.now()))) };
         let typedAnswer: { output?: unknown; error?: string } | undefined;
         let answer: { messages: ModelMessage[]; usage: unknown; toolCalls: Array<{ toolName: string; toolCallId: string; input: unknown }> };

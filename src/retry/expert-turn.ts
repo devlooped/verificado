@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { generateText, jsonSchema, Output, stepCountIs, type LanguageModel, type ModelMessage, type ToolSet } from "ai";
 import { seatOf } from "../court/turns.ts";
+import { courtMaxOutputTokens, courtOutputPhase } from "../court/models.ts";
 import type { CourtEvent } from "../domain/court.ts";
 import { continuationHash, continuationJson } from "../domain/continuation.ts";
 import type { RetryRecord, RetryUnitSpec } from "../domain/retry-state.ts";
@@ -161,7 +162,7 @@ function plan(record: RetryRecord, task: RetryExpertTask): RetryExpertWork {
 // server-native tools need a separately audited adapter, never a JSON fallback.
 export async function generateRetryExpertText(spec: RetryUnitSpec, model: LanguageModel): Promise<unknown> {
   if (spec.kind !== "expert.turn.generation" || spec.effect !== "external") return reject();
-  const input = spec.input as { model: { id: string; providerOptions?: Parameters<typeof generateText>[0]["providerOptions"] };
+  const input = spec.input as { task: Extract<RetryExpertTask, { kind: "turn" }>; model: { id: string; providerOptions?: Parameters<typeof generateText>[0]["providerOptions"] };
     payload: { system: string; messages: ModelMessage[]; mode: string; tools: unknown; budget: unknown; outputSchema: unknown } };
   const budget = budgetSchema.parse(input.payload.budget);
   const remaining = Date.parse(budget.expiresAt) - Date.now();
@@ -174,7 +175,7 @@ export async function generateRetryExpertText(spec: RetryUnitSpec, model: Langua
     for (const [name, definition] of Object.entries(definitions.data)) tools[name] = { description: definition.description, inputSchema: jsonSchema(definition.inputSchema) };
   }
   const generated = await generateText({ model, system: input.payload.system,
-    messages: input.payload.messages, providerOptions: input.model.providerOptions, maxRetries: 0, stopWhen: stepCountIs(1),
+    messages: input.payload.messages, providerOptions: input.model.providerOptions, maxOutputTokens: courtMaxOutputTokens(courtOutputPhase(turnPhase(input.task.spec))), maxRetries: 0, stopWhen: stepCountIs(1),
     abortSignal: AbortSignal.timeout(Math.min(remaining, budget.timeoutMs)),
     ...(input.payload.mode === "typed" ? { output: Output.object({ schema: jsonSchema(input.payload.outputSchema as Record<string, unknown>) }) } :
       input.payload.mode === "tools" && Object.keys(tools).length ? { tools } : {}),
