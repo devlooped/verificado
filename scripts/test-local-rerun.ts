@@ -4,6 +4,7 @@ import { mock } from "node:test";
 import nextEnv from "@next/env";
 import { Pool, type PoolClient } from "pg";
 import { Sandbox } from "@vercel/sandbox";
+import { setWorld } from "workflow/runtime";
 import { requireLocalDatabase, LOCAL_DATABASE } from "../src/lib/local-database.ts";
 
 nextEnv.loadEnvConfig(process.cwd(), true);
@@ -16,6 +17,8 @@ mock.method(globalThis, "fetch", forbidden);
 mock.method(Sandbox, "get", forbidden);
 mock.method(Sandbox, "list", forbidden);
 mock.method(Sandbox, "create", forbidden);
+// Deliberately incomplete World evidence: this fixture exercises only blockers.
+setWorld({ specVersion: 8, runs: { get: async (runId: string) => ({ runId, status: "running" }) } } as unknown as Parameters<typeof setWorld>[0]);
 try {
   assert.deepEqual((await sql.query("SELECT current_database() AS db, current_user AS usr")).rows[0], { db: LOCAL_DATABASE, usr: "grokeado" });
   const store = await import("../src/store.ts");
@@ -72,7 +75,7 @@ try {
       const client = await connect.call(this);
       const query = client.query, release = client.release;
       client.query = function (this: PoolClient, ...args: unknown[]) {
-        if (typeof args[0] === "string" && args[0].startsWith("SELECT status, stopped_workflow_run_id")) {
+        if (typeof args[0] === "string" && args[0].startsWith("SELECT status,") && args[0].includes("FOR UPDATE")) {
           if (++entries === 2) started.resolve();
         }
         return Reflect.apply(query, this, args);
@@ -92,28 +95,31 @@ try {
       await assert.rejects(sql.query("SELECT id FROM cases WHERE id=$1 FOR UPDATE NOWAIT", [id]), error => (error as { code?: string }).code === "55P03");
       await lock.query("COMMIT");
     } finally { await lock.query("ROLLBACK"); lock.release(); hook.mock.restore(); }
-    for (const response of await pending!) {
-      assert.equal(response.status, 409);
-      assert.deepEqual(await response.json(), SANDBOX_CLEANUP_BLOCKED_RESPONSE);
-    }
+    const [deleted, restarted] = await pending!;
+    assert.equal(deleted.status, 409);
+    assert.deepEqual(await deleted.json(), SANDBOX_CLEANUP_BLOCKED_RESPONSE);
+    assert.equal(restarted.status, 409);
+    assert.match((await restarted.json()).error, /sigue en curso/);
     assert.deepEqual(await snapshot(), before!);
     const attempts = await Promise.allSettled([
       store.deleteCase(id, callback), store.restartCase(id, callback), store.requeueCase(id, callback),
       callback([id, id + "-alias"]), store.deleteCase(id, async () => { external++; }),
     ]);
-    for (const result of attempts) {
-      if (terminal === "resolved" && result.status === "fulfilled") assert.equal(result.value, false, "legacy requeue rejects nonfailed cases without effects");
+    for (const [index, result] of attempts.entries()) {
+      if (index === 1) { assert.equal(result.status, "fulfilled"); if (result.status === "fulfilled") assert.equal(result.value, "active"); }
+      else if (index === 2) { assert.equal(result.status, "fulfilled"); if (result.status === "fulfilled") assert.equal(result.value, false); }
       else assert.ok(result.status === "rejected" && result.reason instanceof cleanup.SandboxCleanupBlockedError);
     }
     assert.deepEqual(await snapshot(), before!);
   }
   assert.equal(artifacts.size, 2);
   assert.equal(external, 0);
-  console.log("PASS: guarded PostgreSQL DELETE/POST terminal races, explicit 409, callback/no-op bypass blocked, rollback and all private references/artifacts retained; zero Blob/Sandbox/provider/workflow effects.");
+  console.log("PASS: guarded PostgreSQL DELETE/POST terminal races, explicit 409 with incomplete World evidence, callback/no-op bypass blocked, rollback and all private references/artifacts retained; zero Blob/Sandbox/provider/workflow effects.");
 } finally {
   // Only synthetic rows owned by this fixture; never weaken application cleanup.
   await sql.query("DELETE FROM cases WHERE id=$1", [id]);
   await sql.query("DELETE FROM admin_notifications WHERE case_id=$1", [id]);
   await sql.end();
   mock.restoreAll();
+  setWorld(undefined);
 }

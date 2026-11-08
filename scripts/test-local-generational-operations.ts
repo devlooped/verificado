@@ -89,7 +89,8 @@ function checkNetwork(own: Ownership, requireEmpty = false, verifyConfiguration 
 }
 
 let workerStage = "Docker/SQL identity and schema bootstrap";
-async function realDatabase(d: Descriptor, retry = false): Promise<{ passed: string[]; version: string; isolation: string; external: number }> {
+type FixtureMode = "--retry" | "--rerun" | undefined;
+async function realDatabase(d: Descriptor, mode?: FixtureMode): Promise<{ passed: string[]; version: string; isolation: string; external: number }> {
   workerStage = "ephemeral worker descriptor and parent identity";
   assert.equal(d.parentPid, process.ppid); assert.ok(process.connected);
   assert.ok(/^[0-9a-f-]{36}$/.test(d.nonce) && /^[0-9a-f]{64}$/.test(d.containerId) && /^[0-9a-f]{64}$/.test(d.networkId));
@@ -139,9 +140,14 @@ async function realDatabase(d: Descriptor, retry = false): Promise<{ passed: str
     workerStage = "store import after identity proof and fresh schema bootstrap";
     const store = await import("../src/store.ts"); // First import only after Docker and SQL identity proof.
     await store.createCase("fixture-schema-" + randomUUID(), { kind: "text", text: "Fresh disposable schema bootstrap only." });
-    if (retry) {
-      const { runRetryPostgresChecks } = await import("./retry-postgres-checks.ts");
-      await runRetryPostgresChecks(sql, check);
+    if (mode) {
+      if (mode === "--retry") {
+        const { runRetryPostgresChecks } = await import("./retry-postgres-checks.ts");
+        await runRetryPostgresChecks(sql, check);
+      } else {
+        const { runRerunPostgresChecks } = await import("./rerun-postgres-checks.ts");
+        await runRerunPostgresChecks(sql, check);
+      }
       assert.equal(external, 0); assert.equal((await sql.query("SELECT nonce FROM fixture_identity")).rows[0].nonce, d.nonce);
       return { passed, version: identity.version, isolation: identity.isolation, external };
     }
@@ -294,7 +300,7 @@ async function realDatabase(d: Descriptor, retry = false): Promise<{ passed: str
   }
 }
 
-async function run(context: string, imageTag: string, retry = false): Promise<void> {
+async function run(context: string, imageTag: string, mode?: FixtureMode): Promise<void> {
   localContext(context);
   // Inspect only: never pull/build/install. Pin to the complete existing ID.
   const image = JSON.parse(docker(context, ["image", "inspect", imageTag, "--format", '{"id":{{json .Id}},"os":{{json .Os}},"volumes":{{json .Config.Volumes}}}']));
@@ -320,7 +326,7 @@ async function run(context: string, imageTag: string, retry = false): Promise<vo
     storageProved = true;
     console.log(`Created resource IDs: container=${own.containerId}; network=${own.networkId}.`);
     console.log("Dedicated local PostgreSQL created: private NAT bridge, ICC disabled, loopback-only port, tmpfs only, existing pinned image.");
-    child = fork(file, retry ? ["--worker", "--retry"] : ["--worker"], { execArgv: ["--import", "tsx"], env: cleanEnvironment(), silent: true });
+    child = fork(file, mode ? ["--worker", mode] : ["--worker"], { execArgv: ["--import", "tsx"], env: cleanEnvironment(), silent: true });
     // Never forward raw child stderr/errors: pg/CLI errors can contain credentials.
     child.stdout?.resume(); child.stderr?.resume();
     const result = await new Promise<{ passed: string[]; version: string; isolation: string; external: number }>((resolve, reject) => {
@@ -368,25 +374,28 @@ async function run(context: string, imageTag: string, retry = false): Promise<vo
 
 async function main(): Promise<void> {
   if (process.argv[2] === "--worker") {
-    assert.ok(process.connected && process.send && (process.argv.length === 3 || (process.argv.length === 4 && process.argv[3] === "--retry")), "Standalone worker blocked");
+    assert.ok(process.connected && process.send && (process.argv.length === 3 || (process.argv.length === 4 && ["--retry", "--rerun"].includes(process.argv[3]))), "Standalone worker blocked");
     process.once("message", async (message: Descriptor) => {
-      try { const result = await realDatabase(message, process.argv[3] === "--retry"); process.send!(result, () => process.exit(0)); }
+      try { const result = await realDatabase(message, process.argv[3] as FixtureMode); process.send!(result, () => process.exit(0)); }
       catch (error) { process.send!({ failed: workerStage, sqlstate: (error as { code?: string })?.code }, () => process.exit(1)); } // Dedicated worker exit also closes the private store pool.
     });
     return;
   }
   const args = process.argv.slice(2);
   assert.ok(args.includes("--run"), "Blocked: explicit --run required; no database or Docker resources touched");
-  let context = "", image = "postgres:17-alpine", retry = false;
+  let context = "", image = "postgres:17-alpine", mode: FixtureMode;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--run") continue;
-    if (args[i] === "--retry") { retry = true; continue; }
+    if (args[i] === "--retry" || args[i] === "--rerun") {
+      assert.equal(mode, undefined, "Only one fixture mode is allowed");
+      mode = args[i] as FixtureMode; continue;
+    }
     if (args[i] === "--context") context = args[++i];
     else if (args[i] === "--image") image = args[++i];
     else throw new Error("Unknown fixture option blocked");
   }
   assert.ok(context && /^postgres:[a-zA-Z0-9_.-]+$/.test(image), "Explicit local context and installed postgres tag required");
-  await run(context, image, retry);
+  await run(context, image, mode);
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch(error => { console.error(error instanceof Error && !error.message.includes("Assertion") ? error.message : "Fixture preflight/assertion blocked (details suppressed)"); process.exitCode = 1; });

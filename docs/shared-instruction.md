@@ -109,15 +109,24 @@ the input mounted into debate sandboxes. Legacy archives are not rewritten.
 Only admins can retry failed cases or see raw failure details. Other visitors
 receive a generic failure message with no retry control. The failed-case page's
 **Reintentar** action is blocked server-side and has no effects. The separate
-administrative rerun and deletion are also blocked while safe resource cleanup
-is unproved. They return HTTP 409 with `code: sandbox_cleanup_blocked`, preserving
-the entire case, upload, access metadata, generated state, Blob artifacts,
-aliases, phase checkpoints and sandbox bindings. No new workflow is started.
-The store checks under the case lock before any destructive callback, so a
-direct caller or no-op callback cannot discard private-resource references.
-Terminal status, cancellation, expired grants or absent tags/bindings do not
-prove complete references or historical writer inactivity. This does not recover
-references/resources lost by earlier resets or already-expired snapshots.
+administrative **rerun is a fresh execution**, not same-run retry. It does not
+delete sandboxes or snapshots. Under the case row lock it checks the previous
+run(s) and all pages of their step journal, rejecting active/ambiguous steps or
+unavailable evidence. It then archives the original case, aliases, phase
+checkpoints, sandbox bindings, source operations/aliases and audit in the private
+`case_rerun_resources` table, before resetting generated state and files. The ID,
+owner, original upload and shared aliases survive; the new run uses fresh inputs
+and can incur new costs. Old bindings are removed from the active registry, and
+workflow/broker store and Blob writers retain their run identity so a late writer
+cannot publish over the reset/new run. The archive is not public or a source of
+retry eligibility; it has no deletion cascade to the case and no automatic GC.
+
+**Deletion** still returns HTTP 409 with `code: sandbox_cleanup_blocked` while
+safe private-resource cleanup is unproved. No-op callbacks cannot bypass it.
+Terminal status alone, cancellation, expired grants or absent tags/bindings do
+not prove safe private-resource deletion. The rerun check is not proof of remote
+snapshot retention or provider inactivity. This does not recover references
+lost by earlier resets or already-expired snapshots.
 Automatic cleanup logs the block without replacing the original workflow error;
 it keeps the existing step sequence. Same-execution retries can reuse active
 legacy checkpoints, but this is not public continuation or a reset fallback.
@@ -144,6 +153,15 @@ git diff --check
 The PostgreSQL fixture uses mocked acquisition/translation and in-memory
 artifacts, verifies ownership/checkpoint CAS, ID regeneration and cascading
 deletion, and cleans up its own case. It does not use Blob or paid AI.
+For the rerun archive, concurrent reset, rollback and late-writer checks, use
+the dedicated disposable runner rather than the shared database fixture:
+
+```powershell
+node --import tsx scripts/test-local-generational-operations.ts --run --context desktop-linux --rerun
+```
+
+Its SQL/locks are real; World observations and generated-file deletion are
+simulated. See [the fixture isolation requirements](generational-postgres.md).
 
 For a failed or uncertain local source stage, inspect its operation and audit
 first, then explicitly authorize only the affected stage:

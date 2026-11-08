@@ -14,6 +14,7 @@ import { liveSourceDependencies, SourceService } from "./sources.ts";
 import { executeSourceTool } from "./tools.ts";
 import { instructionBridgeConfig } from "./config.ts";
 import { requireContinuationEnabled } from "../domain/continuation.ts";
+import { withLegacyRunScope } from "../lib/rerun-run.ts";
 
 export function caseSourceService(record: CaseRecord): SourceService {
   const translator = record.models?.translator;
@@ -104,17 +105,19 @@ export function createTurnProxy(config: { origin: string; teamId: string; projec
     try {
       // Persistent SDK sandboxes resume by name; their VM ID may change on
       // resume. Both values are OIDC-verified, but the binding stores the name.
-      const { caseId, binding } = await deps.consume(meta.sandboxName, toolPath?.[1]);
+      const { caseId, binding, runId } = await deps.consume(meta.sandboxName, toolPath?.[1]);
       // Generation-aware broker effects need generation-isolated artifacts and
       // retention (step 4). Do not authorize them with legacy paths meanwhile.
       if(binding.writer) requireContinuationEnabled();
-      const body = await boundedJson(request);
-      if (isGeneration) return await generation(request, body, caseId, binding, deps);
-      const call = ToolRequest.parse(body);
-      const record = await deps.getCase(caseId);
-      if (!record || !sharedPipeline(record.pipelineVersion)) throw new Error("case_unavailable");
-      const events = await deps.getEvents(caseId);
-      return Response.json(await executeSourceTool(call, { record, events, phase: binding.phase, seat: binding.seat, turnId: binding.activeTurn!.id, reader: deps.reader(record), artifacts: deps.artifacts, activity: deps.activity }));
+      return await withLegacyRunScope(runId ?? "unbound-sandbox-run", async () => {
+        const body = await boundedJson(request);
+        if (isGeneration) return await generation(request, body, caseId, binding, deps);
+        const call = ToolRequest.parse(body);
+        const record = await deps.getCase(caseId);
+        if (!record || !sharedPipeline(record.pipelineVersion)) throw new Error("case_unavailable");
+        const events = await deps.getEvents(caseId);
+        return Response.json(await executeSourceTool(call, { record, events, phase: binding.phase, seat: binding.seat, turnId: binding.activeTurn!.id, reader: deps.reader(record), artifacts: deps.artifacts, activity: deps.activity }));
+      });
     } catch (error) {
       // Keep public responses generic and log only known codes, never request
       // bodies, credentials, source text or arbitrary upstream error messages.

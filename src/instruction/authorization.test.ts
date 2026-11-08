@@ -9,6 +9,7 @@ import { buildCaseLog, parseCaseLog } from "../evidence/case-log.ts";
 import { assertToolCapability, authorizeSandboxBinding, committedPhase, type SandboxBinding } from "./authorization.ts";
 import { validateGatewayGeneration } from "./gateway-validation.ts";
 import { createTurnProxy } from "./proxy.ts";
+import { legacyWorkflowRunId } from "../lib/rerun-run.ts";
 import type { ToolActivity } from "../domain/tool-activity.ts";
 import { preparationDefinitions } from "./preparation.ts";
 import { MemoryOperationRepository } from "./source-store.ts";
@@ -136,10 +137,10 @@ test("persistent sandbox proxy binds the verified name across VM resumes and reu
   let generations = 0, auditError: string | undefined;
   const audit = new Map<string, unknown>();
   const dispatch = createTurnProxy({ origin: "https://staging.example.test", teamId: "team", projectId: "project" }, {
-    consume: async (name) => { assert.equal(name, "persistent-fixture"); return { caseId: "fixture", binding }; },
+    consume: async (name) => { assert.equal(name, "persistent-fixture"); return { caseId: "fixture", binding, runId: "authenticated-run" }; },
     getCase: async () => ({ ...record, revision: 0 }), getEvents: async () => [], reader: () => reader, artifacts, activity: async () => {},
-    audit: async (_caseId, key, value) => { if (auditError) throw new Error(auditError); if (audit.has(key)) assert.deepEqual(value, audit.get(key)); audit.set(key, value); },
-    generate: async (_request, actual) => { generations++; assert.deepEqual(actual, body); return JSON.stringify({ content: [], usage: { inputTokens: { cacheRead: 42, cacheWrite: 10 } } }); },
+    audit: async (_caseId, key, value) => { assert.equal(legacyWorkflowRunId(), "authenticated-run"); if (auditError) throw new Error(auditError); if (audit.has(key)) assert.deepEqual(value, audit.get(key)); audit.set(key, value); },
+    generate: async (_request, actual) => { assert.equal(legacyWorkflowRunId(), "authenticated-run"); generations++; assert.deepEqual(actual, body); return JSON.stringify({ content: [], usage: { inputTokens: { cacheRead: 42, cacheWrite: 10 } } }); },
   });
   const meta = { host: "ai-gateway.vercel.sh", teamId: "team", projectId: "project", sandboxName: "persistent-fixture", sandboxId: "vm-first" };
   const request = (input = body) => new Request("https://ai-gateway.vercel.sh/v4/ai/language-model", { method: "POST", headers: { "content-type": "application/json", "ai-language-model-id": "fixture/model", "ai-language-model-specification-version": "4", "ai-language-model-streaming": "false", "x-court-call-id": "turn:0" }, body: JSON.stringify(input) });
@@ -150,6 +151,7 @@ test("persistent sandbox proxy binds the verified name across VM resumes and reu
   assert.equal(await resumed.text(), await first.text());
   assert.equal(generations, 1);
   assert.equal(audit.size, 1);
+  assert.equal(legacyWorkflowRunId(), undefined, "run scope never escapes its broker request");
   assert.match(JSON.stringify([...audit.values()]), /cacheRead/);
   const changed = await dispatch(request({ ...body, prompt: [{ ...body.prompt[0], content: [{ type: "text", text: "Changed request" }] }] }), meta);
   assert.equal(changed.status, 403, "the same call ID cannot replay a different prompt");

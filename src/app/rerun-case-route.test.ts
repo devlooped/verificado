@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Pool } from "pg";
 import { Sandbox } from "@vercel/sandbox";
-import { SANDBOX_CLEANUP_BLOCKED_RESPONSE } from "../lib/sandbox-cleanup.ts";
+import { setWorld } from "workflow/runtime";
 import { auth0 } from "../lib/auth0.ts";
 import { POST } from "./api/cases/[id]/rerun/route.ts";
 
@@ -18,7 +18,9 @@ test("POST independently checks the server session before accessing storage", as
   assert.equal(db.mock.callCount(), 0);
 });
 
-test("authorized POST rerun returns cleanup_blocked without Blob/reset/start/finish effects", async t => {
+test("authorized POST rerun with unproved run inactivity preserves all state and starts nothing", async t => {
+  setWorld({ specVersion: 8, runs: { get: async (runId: string) => ({ runId, status: "running" }) } } as unknown as Parameters<typeof setWorld>[0]);
+  t.after(() => setWorld(undefined));
   const previous = process.env.DATABASE_URL;
   process.env.DATABASE_URL = "postgres://example.invalid/test";
   t.after(() => { if (previous === undefined) delete process.env.DATABASE_URL; else process.env.DATABASE_URL = previous; });
@@ -44,7 +46,7 @@ test("authorized POST rerun returns cleanup_blocked without Blob/reset/start/fin
   t.mock.method(Sandbox, "list", forbidden as typeof Sandbox.list);
   const response = await POST(new Request("https://example.test/api/cases/AA-123-BB/rerun", { method: "POST", headers: { origin: "https://example.test" } }), { params: Promise.resolve({ id: "AA-123-BB" }) });
   assert.equal(response.status, 409);
-  assert.deepEqual(await response.json(), SANDBOX_CLEANUP_BLOCKED_RESPONSE);
-  assert.deepEqual(queries, ["BEGIN", "SELECT status, stopped_workflow_run_id, continuation_generation, retry_contract_version FROM cases WHERE id = $1 FOR UPDATE", "SELECT submission->>'kind' = 'image' AND NOT EXISTS (SELECT 1 FROM images WHERE case_id = $1) AS missing_image FROM cases WHERE id = $1", "ROLLBACK"]);
+  assert.match((await response.json()).error, /sigue en curso/);
+  assert.deepEqual(queries, ["BEGIN", "SELECT status, workflow_run_id, stopped_workflow_run_id, continuation_generation, retry_contract_version FROM cases WHERE id = $1 FOR UPDATE", "SELECT submission->>'kind' = 'image' AND NOT EXISTS (SELECT 1 FROM images WHERE case_id = $1) AS missing_image FROM cases WHERE id = $1", "ROLLBACK"]);
   assert.equal(effects, 0);
 });

@@ -55,7 +55,7 @@ test("a cancellation failure rolls back without changing case status", async (t)
   assert.ok(!calls.some((sql) => sql.startsWith("UPDATE cases")));
 });
 
-test("settled or cancelled known steps do not authorize reset/deletion or workflow enumeration", async (t) => {
+test("unproved World evidence prevents rerun, and private resource deletion remains blocked", async (t) => {
   const calls = fakeDatabase(t, { status: "failed", workflow_run_id: "run-1", stopped_workflow_run_id: "run-1" });
   let running = true;
   let lists = 0;
@@ -63,12 +63,12 @@ test("settled or cancelled known steps do not authorize reset/deletion or workfl
   t.after(() => setWorld(undefined));
   let cleanups = 0;
   const cleanup = async () => { cleanups++; };
-  await assert.rejects(restartCase("fixture", cleanup), /Sandbox cleanup blocked/);
+  assert.equal(await restartCase("fixture", cleanup), "active");
   await assert.rejects(deleteCase("fixture", cleanup), /Sandbox cleanup blocked/);
   assert.equal(cleanups, 0);
   assert.ok(!calls.some((sql) => sql.startsWith("DELETE")));
   running = false;
-  await assert.rejects(restartCase("fixture", cleanup), /Sandbox cleanup blocked/);
+  assert.equal(await restartCase("fixture", cleanup), "active");
   await assert.rejects(deleteCase("fixture", cleanup), /Sandbox cleanup blocked/);
   assert.equal(cleanups, 0);
   assert.equal(lists, 0);

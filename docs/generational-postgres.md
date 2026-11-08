@@ -85,6 +85,25 @@ workflow, repair o GC real. No se completa el plan ni se habilitan rutas/flags.
 
 ## Limpieza y límites
 
+### Modo rerun administrativo
+
+```powershell
+node --import tsx scripts/test-local-generational-operations.ts --run --context desktop-linux --rerun
+```
+
+Usa los mismos guards y recursos desechables del runner; `--rerun` y `--retry`
+son modos mutuamente exclusivos. Tres checks cubren conservación íntegra ante
+inactividad no demostrada/borrado inseguro, rollback del archivo ante fallo del
+callback y cuatro resets concurrentes con un único ganador. Comprueban el lock
+real dentro del callback (`55P03`), archivo completo de referencias privadas,
+upload/owner/aliases conservados, grants antiguos inaccesibles y writers tardíos
+rechazados antes y después de vincular un run nuevo.
+
+Pasó en PostgreSQL 17.11, `read committed`, tres checks, cero intentos externos
+y cleanup confirmado. World/steps y borrado de archivos se simulan; no hay
+arranque SDK, sandboxes, snapshots ni proveedores reales. No acredita
+inactividad remota, retención ni habilitación del retry del mismo run.
+
 ### Modo same-run retry
 
 ```powershell

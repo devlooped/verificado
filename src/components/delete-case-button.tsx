@@ -27,7 +27,7 @@ export function DeleteCaseButton({ caseId, active }: { caseId: string; active: b
   }
 
   async function rerun() {
-    if (!window.confirm(`¿Volver a procesar el caso Nº ${caseId}? Se conservarán el ID y el material enviado, pero se eliminarán el resultado y los archivos generados anteriormente. El proceso comenzará de nuevo; si enviaste un enlace, se consultará otra vez y puede traer información actualizada. Esta acción no se puede deshacer y puede generar costos.`)) return;
+    if (!window.confirm(`¿Volver a procesar el caso Nº ${caseId}? Se conservarán el ID y el material enviado, pero se eliminarán el resultado y los archivos generados anteriormente. Los sandboxes y snapshots privados se conservarán, con sus referencias archivadas. El proceso comenzará de nuevo; si enviaste un enlace, se consultará otra vez y puede traer información actualizada. Esta acción no se puede deshacer y puede generar costos.`)) return;
     setPending("rerun");
     setError("");
     try {

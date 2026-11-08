@@ -2,10 +2,13 @@ import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
 import { Pool } from "pg";
 import { failResolvedCase, requeueCase, restartCase } from "./store.ts";
-import { SandboxCleanupBlockedError } from "./lib/sandbox-cleanup.ts";
+import { setWorld } from "workflow/runtime";
 
 type Call = { sql: string; args?: unknown[] };
 function fakeDatabase(t: TestContext, status: string | undefined, missingImage = false) {
+  setWorld({ specVersion: 8, runs: { get: async (runId: string) => ({ runId, status: "completed", deploymentId: "fixture-deployment" }) },
+    steps: { list: async () => ({ data: [{ runId: "run-1", status: "completed" }], hasMore: false, cursor: null }) } } as unknown as Parameters<typeof setWorld>[0]);
+  t.after(() => setWorld(undefined));
   const previous = process.env.DATABASE_URL;
   process.env.DATABASE_URL = "postgres://example.invalid/test";
   t.after(() => { if (previous === undefined) delete process.env.DATABASE_URL; else process.env.DATABASE_URL = previous; });
@@ -14,28 +17,31 @@ function fakeDatabase(t: TestContext, status: string | undefined, missingImage =
   t.mock.method(Pool.prototype, "connect", (async () => ({
     query: async (sql: string, args?: unknown[]) => {
       calls.push({ sql, args });
-      if (sql.startsWith("SELECT status")) return { rows: status ? [{ status }] : [] };
+      if (sql.startsWith("SELECT status")) return { rows: status ? [{ status, workflow_run_id: "run-1" }] : [] };
       if (sql.startsWith("SELECT submission")) return { rows: [{ missing_image: missingImage }] };
       if (sql.startsWith("SELECT old_id")) return { rows: [{ old_id: "old-id" }] };
-      return { rows: [] };
+      return { rows: [], rowCount: 1 };
     },
     release: () => { calls.push({ sql: "release" }); },
   })) as unknown as typeof Pool.prototype.connect);
   return calls;
 }
 
-test("restart preserves generated state and private references before any callback or reset", async (t) => {
+test("restart archives private references before reset, keeping the ID and original upload", async (t) => {
   const calls = fakeDatabase(t, "resolved");
   const blobs: string[][] = [];
-  await assert.rejects(restartCase("AA-123-BB", async (ids) => { blobs.push(ids); }), SandboxCleanupBlockedError);
-  assert.deepEqual(blobs, []);
-  assert.deepEqual(calls.map(({ sql }) => sql), [
-    "BEGIN",
-    "SELECT status, stopped_workflow_run_id, continuation_generation, retry_contract_version FROM cases WHERE id = $1 FOR UPDATE",
-    "SELECT submission->>'kind' = 'image' AND NOT EXISTS (SELECT 1 FROM images WHERE case_id = $1) AS missing_image FROM cases WHERE id = $1",
-    "ROLLBACK",
-    "release",
-  ]);
+  assert.equal(await restartCase("AA-123-BB", async (ids) => {
+    assert.ok(calls.some(({ sql }) => sql.startsWith("INSERT INTO case_rerun_resources")));
+    assert.ok(!calls.some(({ sql }) => sql.startsWith("DELETE")));
+    blobs.push(ids);
+  }), "queued");
+  assert.deepEqual(blobs, [["AA-123-BB", "old-id"]]);
+  const archive = calls.find(({ sql }) => sql.startsWith("INSERT INTO case_rerun_resources"))!;
+  for (const table of ["case_aliases", "case_phase_sessions", "case_sandbox_bindings", "case_source_operations", "case_source_aliases", "case_audit_records"]) assert.ok(archive.sql.includes(table));
+  assert.equal(archive.args?.[0], "AA-123-BB");
+  assert.ok(!calls.some(({ sql }) => sql.startsWith("DELETE FROM images") || sql.startsWith("DELETE FROM case_rerun_resources")));
+  assert.ok(calls.some(({ sql }) => sql.includes("status = 'queued'") && sql.includes("workflow_run_id = NULL")));
+  assert.ok(calls.some(({ sql }) => sql === "COMMIT"));
 });
 
 test("missing or active cases cannot be reset", async (t) => {
@@ -51,13 +57,12 @@ test("missing or active cases cannot be reset", async (t) => {
   }
 });
 
-test("legacy requeueCase cannot bypass the cleanup block with a no-op callback", async (t) => {
+test("legacy requeue also retains private references before a fresh run", async (t) => {
   const calls = fakeDatabase(t, "failed");
   const blobs: string[][] = [];
-  await assert.rejects(requeueCase("AA-123-BB", async (ids) => { blobs.push(ids); }), SandboxCleanupBlockedError);
-  assert.deepEqual(blobs, []);
-  assert.ok(!calls.some(({ sql }) => /^(DELETE|UPDATE|COMMIT)/.test(sql)));
-  assert.ok(calls.some(({ sql }) => sql === "ROLLBACK"));
+  assert.equal(await requeueCase("AA-123-BB", async (ids) => { blobs.push(ids); }), true);
+  assert.deepEqual(blobs, [["AA-123-BB", "old-id"]]);
+  assert.ok(calls.some(({ sql }) => sql.startsWith("INSERT INTO case_rerun_resources")));
 });
 
 test("legacy requeueCase does not reset resolved, active or missing cases", async (t) => {
@@ -80,9 +85,9 @@ test("a missing original image rejects the rerun before deleting case data or bl
   assert.ok(!calls.some(({ sql }) => sql.startsWith("DELETE") || sql.startsWith("UPDATE")));
 });
 
-test("cleanup safety failure rolls back before even invoking a failing Blob callback", async (t) => {
+test("a Blob failure rolls back the reset without losing private references", async (t) => {
   const calls = fakeDatabase(t, "failed");
-  await assert.rejects(restartCase("AA-123-BB", async () => { throw new Error("must not reach Blob"); }), SandboxCleanupBlockedError);
+  await assert.rejects(restartCase("AA-123-BB", async () => { throw new Error("Blob failure"); }), /Blob failure/);
   assert.ok(calls.some(({ sql }) => sql === "ROLLBACK"));
   assert.ok(!calls.some(({ sql }) => sql.startsWith("DELETE") || sql.startsWith("UPDATE")));
 });

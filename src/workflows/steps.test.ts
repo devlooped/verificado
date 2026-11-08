@@ -48,7 +48,7 @@ test("persisted collection progress logs correlated counts without event bodies 
   t.mock.method(Pool.prototype, "connect", (async () => ({
     query: async (sql: string, values?: unknown[]) => {
       if (["BEGIN","COMMIT","ROLLBACK"].includes(sql)) return {rows:[]};
-      if (sql.startsWith("SELECT id, continuation_generation")) return {rows:[{id:"CASE-TEST",continuation_generation:0}]};
+      if (sql.startsWith("SELECT id, continuation_generation")) return {rows:[{id:"CASE-TEST",continuation_generation:0,workflow_run_id:"wrun_fixture",stopped_workflow_run_id:null}]};
       return Pool.prototype.query(sql,values);
     }, release: () => {},
   })) as unknown as typeof Pool.prototype.connect);

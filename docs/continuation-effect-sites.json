@@ -807,7 +807,7 @@
       "scope": "restartCase",
       "call": "client.query",
       "kind": "sql-write-or-lock",
-      "count": 5
+      "count": 6
     },
     {
       "file": "src/store.ts",

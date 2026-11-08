@@ -11,6 +11,7 @@ import { publicToolActivities, ToolActivitySchema, type ToolActivity } from "./d
 import type { PromptTranslationCache } from "./evidence/prompt-translation.ts";
 import { stoppedRunSettled } from "./lib/stopped-run.ts";
 import { assertSandboxCleanupSafe } from "./lib/sandbox-cleanup.ts";
+import { assertLegacyRunWriter, legacyWorkflowRunId, rerunRunSettled } from "./lib/rerun-run.ts";
 import { continuationHash, continuationJson, requireContinuationEnabled, validateContinuationCheckpoint, type ContinuationCheckpoint, type ContinuationGeneration, type ContinuationReservation, type ContinuationStartOutcome, type ContinuationStartResult, type ContinuationWriter } from "./domain/continuation.ts";
 import { QUICK_CONSENSUS_UNIT, validateQuickContentConsensusPublication } from "./court/quick-continuation.ts";
 import { GenerationArtifactBlockedError, type StagedGenerationArtifact } from "./evidence/generation-artifacts.ts";
@@ -187,6 +188,12 @@ async function db(): Promise<Pool> {
          sandbox_id TEXT PRIMARY KEY,
          body JSONB NOT NULL
        );
+       CREATE TABLE IF NOT EXISTS case_rerun_resources (
+         archive_id TEXT PRIMARY KEY,
+         case_id TEXT NOT NULL,
+         created_at TEXT NOT NULL,
+         body JSONB NOT NULL
+       );
        CREATE TABLE IF NOT EXISTS prompt_translations (
          key TEXT PRIMARY KEY,
          language TEXT NOT NULL,
@@ -260,6 +267,7 @@ async function assertCaseWriter(client: PoolClient, caseId: string, writer?: Con
   if (row.retry_contract_version != null) throw new Error("Case writer fenced: retry contract");
   if (!writer) {
     if ((row.continuation_generation ?? 0) !== 0) throw new Error("Case writer fenced: continuation generation reserved");
+    assertLegacyRunWriter(legacyWorkflowRunId(), row.workflow_run_id, row.stopped_workflow_run_id);
     return;
   }
   if (!Number.isSafeInteger(writer.generation) || writer.generation < 1 || row.continuation_generation !== writer.generation || row.workflow_run_id !== writer.runId || row.status !== "in_session" || row.stopped_workflow_run_id) throw new Error("Case writer fenced: stale generation or run");
@@ -561,11 +569,13 @@ export async function deleteCase(id: string, deleteBlobs: (ids: string[]) => Pro
 
 // Reuse the public case id, but clear all data produced by the previous run.
 // The original submission (including an uploaded image) remains the workflow input.
+// Private resources are RETAINED with their original reference set, not deleted.
+// Their archive has no cascade/FK to cases and is never used to resume a run.
 export async function restartCase(id: string, deleteBlobs: (ids: string[]) => Promise<void>, expectedStatus?: "failed"): Promise<"queued" | "missing" | "active" | "missing-image"> {
   const client = await (await db()).connect();
   try {
     await client.query("BEGIN");
-    const { rows } = await client.query<{ status: CaseStatus; stopped_workflow_run_id: string | null; continuation_generation: number; retry_contract_version: string | null }>("SELECT status, stopped_workflow_run_id, continuation_generation, retry_contract_version FROM cases WHERE id = $1 FOR UPDATE", [id]);
+    const { rows } = await client.query<{ status: CaseStatus; workflow_run_id: string | null; stopped_workflow_run_id: string | null; continuation_generation: number; retry_contract_version: string | null }>("SELECT status, workflow_run_id, stopped_workflow_run_id, continuation_generation, retry_contract_version FROM cases WHERE id = $1 FOR UPDATE", [id]);
     if (!rows.length) {
       await client.query("ROLLBACK");
       return "missing";
@@ -581,12 +591,28 @@ export async function restartCase(id: string, deleteBlobs: (ids: string[]) => Pr
       await client.query("ROLLBACK");
       return "missing-image";
     }
-    assertSandboxCleanupSafe();
-    if (rows[0]!.stopped_workflow_run_id && !await stoppedRunSettled(rows[0]!.stopped_workflow_run_id)) {
+    const runIds = [...new Set([rows[0].workflow_run_id, rows[0].stopped_workflow_run_id].filter((runId): runId is string => Boolean(runId)))];
+    if (!runIds.length || !(await Promise.all(runIds.map(runId => rerunRunSettled(runId)))).every(Boolean)) {
       await client.query("ROLLBACK");
       return "active";
     }
     const aliases = await client.query<{ old_id: string }>("SELECT old_id FROM case_aliases WHERE case_id = $1", [id]);
+    // Preserve full session/binding bodies (including sandbox IDs, command IDs,
+    // pinned inputs and aliases), even if they are absent from current bindings.
+    // Never enumerate/delete a sandbox or its snapshots during an admin rerun.
+    const retained = await client.query(
+      `INSERT INTO case_rerun_resources (archive_id, case_id, created_at, body)
+       SELECT $2, id, $3, jsonb_build_object(
+         'schemaVersion', 1, 'case', to_jsonb(c),
+         'aliases', COALESCE((SELECT jsonb_agg(to_jsonb(a)) FROM case_aliases a WHERE a.case_id = c.id), '[]'::jsonb),
+         'sessions', COALESCE((SELECT jsonb_agg(to_jsonb(s)) FROM case_phase_sessions s WHERE s.case_id = c.id), '[]'::jsonb),
+         'bindings', COALESCE((SELECT jsonb_agg(to_jsonb(b)) FROM case_sandbox_bindings b WHERE b.case_id = c.id), '[]'::jsonb),
+         'operations', COALESCE((SELECT jsonb_agg(to_jsonb(o)) FROM case_source_operations o WHERE o.case_id = c.id), '[]'::jsonb),
+         'sourceAliases', COALESCE((SELECT jsonb_agg(to_jsonb(a)) FROM case_source_aliases a WHERE a.case_id = c.id), '[]'::jsonb),
+         'audit', COALESCE((SELECT jsonb_agg(to_jsonb(a)) FROM case_audit_records a WHERE a.case_id = c.id), '[]'::jsonb))
+       FROM cases c WHERE c.id = $1`, [id, randomUUID(), new Date().toISOString()]
+    );
+    if (retained.rowCount !== 1) throw new Error("Could not retain private resource references for rerun");
     await deleteBlobs([id, ...aliases.rows.map((row) => row.old_id)]);
     await client.query("DELETE FROM events WHERE case_id = $1", [id]);
     await client.query("DELETE FROM covers WHERE case_id = $1", [id]);
@@ -1199,7 +1225,7 @@ export async function saveSandboxBinding(caseId: string, sandboxId: string, body
   });
 }
 
-export async function consumeSandboxBinding(sandboxId: string, caseId?: string): Promise<{ caseId: string; binding: SandboxBinding }> {
+export async function consumeSandboxBinding(sandboxId: string, caseId?: string): Promise<{ caseId: string; binding: SandboxBinding; runId?: string }> {
   const client = await (await db()).connect();
   try {
     await client.query("BEGIN");
@@ -1217,7 +1243,7 @@ export async function consumeSandboxBinding(sandboxId: string, caseId?: string):
     row.body.activeTurn!.remainingRequests--;
     await client.query("UPDATE case_sandbox_bindings SET body = $2 WHERE sandbox_id = $1", [sandboxId, JSON.stringify(row.body)]);
     await client.query("COMMIT");
-    return { caseId: row.case_id, binding: row.body };
+    return { caseId: row.case_id, binding: row.body, runId: row.workflow_run_id ?? undefined };
   } catch (error) { await client.query("ROLLBACK"); throw error; }
   finally { client.release(); }
 }
