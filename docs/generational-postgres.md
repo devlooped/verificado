@@ -39,6 +39,10 @@ PostgreSQL; esta prueba nueva es una verificación separada, no su reinterpretac
 - Revalida ID/label/imagen, estado/fecha, mounts, network y bindings antes de
   conectar; coteja base/usuario/dirección/puerto del servidor y exige cero tablas
   públicas. Crea un marker de ejecución y lo verifica al terminar.
+- El intervalo de inicio se mide con `SystemTime` del mismo daemon Docker antes
+  de crear y después de inspeccionar, sin mezclar el reloj del host y la VM.
+  Timestamps inválidos, stale, futuros o un reloj que retrocedió bloquean.
+  ID/UUID/label/imagen y todos los controles de aislamiento siguen siendo obligatorios.
 - Todas las conexiones PostgreSQL son reales. En el worker, el guard de
   `Socket.connect` deja pasar sólo el loopback/puerto creado y el guard de
   `fetch` rechaza llamadas. El contador cubre sólo esos dos puntos: no monitorea
@@ -80,6 +84,34 @@ efecto ni publicación. No hay importación histórica, Blob/R2/Sandbox, proveed
 workflow, repair o GC real. No se completa el plan ni se habilitan rutas/flags.
 
 ## Limpieza y límites
+
+### Modo same-run retry
+
+```powershell
+node --import tsx scripts/test-local-generational-operations.ts --run --context desktop-linux --retry
+```
+
+Reutiliza exactamente el runner/worker dedicado y sus guards; después del
+bootstrap fresco instala explícitamente el schema aditivo de retry. Comprueba:
+
+1. Creación atómica exclusiva y un único owner del arranque inicial concurrente.
+2. Lock real `FOR UPDATE NOWAIT`, cuatro claims y reutilización de resultado completo.
+3. Rollback de cuerpo/eventos/cursor/auditoría, colisión, corrupción y respuesta
+   perdida **después del COMMIT real**. Sólo la pérdida de respuesta se simula
+   con un wrapper de Pool; PostgreSQL/SQL/lock/COMMIT no son dobles.
+4. Cursor Quick con una ronda parcial, dos autorizaciones separadas, comandos
+   duplicados y fence de escritores tardíos, sin repetir llamadas sintéticas.
+5. Checkpoints de fase Expert: cuatro saves concurrentes con un solo CAS,
+   restauración de resultados/mensajes/deadline e identidad de `activeTurn`,
+   reutilización de turno completo, cambio de intento del mismo run y rechazo
+   del escritor previo sin mutación. Respuesta perdida después del COMMIT real
+   del resultado: restauración por evidencia durable, sin repetir checkpoint.
+
+Pasó en PostgreSQL 17.11, `read committed`, cinco checks, cero intentos externos
+y cleanup confirmado. El World/hook es simulado en este modo; el SDK real se
+prueba separadamente. No verifica los subefectos reales de PhaseSession,
+objetos, servicios remotos ni
+una ruta habilitable; tampoco cuenta como prueba de retención o cargos únicos.
 
 El runner usa `finally`: revalida ownership del ID que devolvió cada create,
 elimina únicamente su contenedor y comprueba su ausencia; elimina su red sólo

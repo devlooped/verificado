@@ -15,7 +15,7 @@ const file = fileURLToPath(import.meta.url);
 type Ownership = { context: string; nonce: string; name: string; image: string; network: string; networkId: string; containerId: string; started: number; parentPid: number };
 type Descriptor = Ownership & { user: string; database: string; password: string };
 export type ContainerProof = {
-  id: string; name: string; image: string; labels: Record<string, string>; running: boolean; startedAt: string;
+  id: string; name: string; image: string; labels: Record<string, string>; running: boolean; startedAt: string; observedAt: string;
   mounts: Array<{ Type: string; Destination: string }>; tmpfs: Record<string, string>; privileged: boolean; readonly: boolean; binds: unknown;
   networkMode: string; ports: Record<string, Array<{ HostIp: string; HostPort: string }> | null>;
   networks: Record<string, { IPAddress: string }>;
@@ -33,7 +33,12 @@ export function assertDedicatedContainer(info: ContainerProof, own: Ownership): 
   const paths = [dataPath, "/var/run/postgresql", "/tmp"];
   assert.deepEqual(Object.keys(info.tmpfs).sort(), paths.sort());
   assert.ok(info.mounts.every(m => m.Type === "tmpfs" && paths.includes(m.Destination)));
-  assert.ok(Date.parse(info.startedAt) >= own.started - 1000 && Date.parse(info.startedAt) <= Date.now());
+  // Bound StartedAt by samples of the SAME local daemon's clock. Docker Desktop
+  // runs in a VM: comparing its timestamp to the host clock can reject a newly
+  // created container. Invalid/backward daemon time still fails closed.
+  const startedAt = Date.parse(info.startedAt), observedAt = Date.parse(info.observedAt);
+  assert.ok(Number.isFinite(own.started) && Number.isFinite(startedAt) && Number.isFinite(observedAt) &&
+    observedAt >= own.started && startedAt >= own.started - 1000 && startedAt <= observedAt, "Container start outside this execution's daemon-time window");
   assert.equal(info.networkMode, own.network);
   assert.deepEqual(Object.keys(info.networks), [own.network]);
   assert.deepEqual(Object.keys(info.ports), ["5432/tcp"]);
@@ -69,7 +74,8 @@ function localContext(context: string): void {
 function containerInfo(own: Ownership): ContainerProof {
   // Projection deliberately excludes Config.Env and all credentials.
   const format = '{"id":{{json .Id}},"name":{{json .Name}},"image":{{json .Image}},"labels":{{json .Config.Labels}},"running":{{json .State.Running}},"startedAt":{{json .State.StartedAt}},"mounts":{{json .Mounts}},"tmpfs":{{json .HostConfig.Tmpfs}},"privileged":{{json .HostConfig.Privileged}},"readonly":{{json .HostConfig.ReadonlyRootfs}},"binds":{{json .HostConfig.Binds}},"networkMode":{{json .HostConfig.NetworkMode}},"ports":{{json .NetworkSettings.Ports}},"networks":{{json .NetworkSettings.Networks}}}';
-  return JSON.parse(docker(own.context, ["container", "inspect", own.containerId, "--format", format]));
+  const info = JSON.parse(docker(own.context, ["container", "inspect", own.containerId, "--format", format]));
+  return { ...info, observedAt: docker(own.context, ["info", "--format", "{{.SystemTime}}"]) };
 }
 function checkNetwork(own: Ownership, requireEmpty = false, verifyConfiguration = true): void {
   const n = JSON.parse(docker(own.context, ["network", "inspect", own.networkId, "--format", '{"id":{{json .Id}},"name":{{json .Name}},"labels":{{json .Labels}},"driver":{{json .Driver}},"internal":{{json .Internal}},"ipv6":{{json .EnableIPv6}},"options":{{json .Options}},"containers":{{json .Containers}}}']));
@@ -83,7 +89,7 @@ function checkNetwork(own: Ownership, requireEmpty = false, verifyConfiguration 
 }
 
 let workerStage = "Docker/SQL identity and schema bootstrap";
-async function realDatabase(d: Descriptor): Promise<{ passed: string[]; version: string; isolation: string; external: number }> {
+async function realDatabase(d: Descriptor, retry = false): Promise<{ passed: string[]; version: string; isolation: string; external: number }> {
   workerStage = "ephemeral worker descriptor and parent identity";
   assert.equal(d.parentPid, process.ppid); assert.ok(process.connected);
   assert.ok(/^[0-9a-f-]{36}$/.test(d.nonce) && /^[0-9a-f]{64}$/.test(d.containerId) && /^[0-9a-f]{64}$/.test(d.networkId));
@@ -133,6 +139,12 @@ async function realDatabase(d: Descriptor): Promise<{ passed: string[]; version:
     workerStage = "store import after identity proof and fresh schema bootstrap";
     const store = await import("../src/store.ts"); // First import only after Docker and SQL identity proof.
     await store.createCase("fixture-schema-" + randomUUID(), { kind: "text", text: "Fresh disposable schema bootstrap only." });
+    if (retry) {
+      const { runRetryPostgresChecks } = await import("./retry-postgres-checks.ts");
+      await runRetryPostgresChecks(sql, check);
+      assert.equal(external, 0); assert.equal((await sql.query("SELECT nonce FROM fixture_identity")).rows[0].nonce, d.nonce);
+      return { passed, version: identity.version, isolation: identity.isolation, external };
+    }
     const input = { fixture: true, model: "fixture/model", prompt: "Synthetic only", maxRetries: 0 };
     const hash = continuationHash(input);
     const fixture = async () => {
@@ -282,12 +294,14 @@ async function realDatabase(d: Descriptor): Promise<{ passed: string[]; version:
   }
 }
 
-async function run(context: string, imageTag: string): Promise<void> {
+async function run(context: string, imageTag: string, retry = false): Promise<void> {
   localContext(context);
   // Inspect only: never pull/build/install. Pin to the complete existing ID.
   const image = JSON.parse(docker(context, ["image", "inspect", imageTag, "--format", '{"id":{{json .Id}},"os":{{json .Os}},"volumes":{{json .Config.Volumes}}}']));
   assert.ok(/^sha256:[0-9a-f]{64}$/.test(image.id)); assert.equal(image.os, "linux"); assert.deepEqual(Object.keys(image.volumes), [dataPath]);
-  const nonce = randomUUID(), own: Descriptor = { context, nonce, image: image.id, name: "fixture-operations-" + nonce, network: "fixture-operations-" + nonce, networkId: "", containerId: "", started: Date.now(), parentPid: process.pid,
+  const started = Date.parse(docker(context, ["info", "--format", "{{.SystemTime}}"]));
+  assert.ok(Number.isFinite(started), "Local Docker daemon time unavailable");
+  const nonce = randomUUID(), own: Descriptor = { context, nonce, image: image.id, name: "fixture-operations-" + nonce, network: "fixture-operations-" + nonce, networkId: "", containerId: "", started, parentPid: process.pid,
     user: "u_" + randomBytes(16).toString("hex"), database: "db_" + randomBytes(16).toString("hex"), password: randomBytes(32).toString("hex") };
   let child: ReturnType<typeof fork> | undefined;
   let networkAttempted = false, containerAttempted = false, storageProved = false;
@@ -306,7 +320,7 @@ async function run(context: string, imageTag: string): Promise<void> {
     storageProved = true;
     console.log(`Created resource IDs: container=${own.containerId}; network=${own.networkId}.`);
     console.log("Dedicated local PostgreSQL created: private NAT bridge, ICC disabled, loopback-only port, tmpfs only, existing pinned image.");
-    child = fork(file, ["--worker"], { execArgv: ["--import", "tsx"], env: cleanEnvironment(), silent: true });
+    child = fork(file, retry ? ["--worker", "--retry"] : ["--worker"], { execArgv: ["--import", "tsx"], env: cleanEnvironment(), silent: true });
     // Never forward raw child stderr/errors: pg/CLI errors can contain credentials.
     child.stdout?.resume(); child.stderr?.resume();
     const result = await new Promise<{ passed: string[]; version: string; isolation: string; external: number }>((resolve, reject) => {
@@ -354,24 +368,25 @@ async function run(context: string, imageTag: string): Promise<void> {
 
 async function main(): Promise<void> {
   if (process.argv[2] === "--worker") {
-    assert.ok(process.connected && process.send && process.argv.length === 3, "Standalone worker blocked");
+    assert.ok(process.connected && process.send && (process.argv.length === 3 || (process.argv.length === 4 && process.argv[3] === "--retry")), "Standalone worker blocked");
     process.once("message", async (message: Descriptor) => {
-      try { const result = await realDatabase(message); process.send!(result, () => process.exit(0)); }
+      try { const result = await realDatabase(message, process.argv[3] === "--retry"); process.send!(result, () => process.exit(0)); }
       catch (error) { process.send!({ failed: workerStage, sqlstate: (error as { code?: string })?.code }, () => process.exit(1)); } // Dedicated worker exit also closes the private store pool.
     });
     return;
   }
   const args = process.argv.slice(2);
   assert.ok(args.includes("--run"), "Blocked: explicit --run required; no database or Docker resources touched");
-  let context = "", image = "postgres:17-alpine";
+  let context = "", image = "postgres:17-alpine", retry = false;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--run") continue;
+    if (args[i] === "--retry") { retry = true; continue; }
     if (args[i] === "--context") context = args[++i];
     else if (args[i] === "--image") image = args[++i];
     else throw new Error("Unknown fixture option blocked");
   }
   assert.ok(context && /^postgres:[a-zA-Z0-9_.-]+$/.test(image), "Explicit local context and installed postgres tag required");
-  await run(context, image);
+  await run(context, image, retry);
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch(error => { console.error(error instanceof Error && !error.message.includes("Assertion") ? error.message : "Fixture preflight/assertion blocked (details suppressed)"); process.exitCode = 1; });

@@ -31,7 +31,7 @@ test("restart preserves generated state and private references before any callba
   assert.deepEqual(blobs, []);
   assert.deepEqual(calls.map(({ sql }) => sql), [
     "BEGIN",
-    "SELECT status, stopped_workflow_run_id, continuation_generation FROM cases WHERE id = $1 FOR UPDATE",
+    "SELECT status, stopped_workflow_run_id, continuation_generation, retry_contract_version FROM cases WHERE id = $1 FOR UPDATE",
     "SELECT submission->>'kind' = 'image' AND NOT EXISTS (SELECT 1 FROM images WHERE case_id = $1) AS missing_image FROM cases WHERE id = $1",
     "ROLLBACK",
     "release",

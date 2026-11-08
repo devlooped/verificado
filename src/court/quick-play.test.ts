@@ -3,14 +3,14 @@ import { test } from "node:test";
 import { MemoryArtifactStore } from "../evidence/artifacts.ts";
 import { createQuickMockModel } from "./mock.ts";
 import { courtModel } from "./models.ts";
-import { quickAnswer, quickIdentifyClaims, quickTiebreak, quickVote, type QuickPlayDependencies } from "./quick-play.ts";
+import { quickAnswer, quickIdentifyClaims, quickSummarize, quickTiebreak, quickVote, type QuickPlayDependencies } from "./quick-play.ts";
 import { failed, holdQuickSession } from "./quick.ts";
 import { COUNSEL, project, type RecordedEvent, type Submission } from "../domain/court.ts";
 
 const CASE = "quick-fixture";
 const MODEL = courtModel("anthropic/claude-opus-5.5", "high");
 
-function deps(step: "claims" | "answer" | "vote" | "tiebreak", artifacts = new MemoryArtifactStore(), audit: Array<{ id: string; body: Record<string, unknown> }> = []): QuickPlayDependencies {
+function deps(step: "claims" | "answer" | "vote" | "tiebreak" | "summary", artifacts = new MemoryArtifactStore(), audit: Array<{ id: string; body: Record<string, unknown> }> = []): QuickPlayDependencies {
   return {
     artifacts, model: createQuickMockModel(step),
     audit: async (_caseId, id, body) => void audit.push({ id, body: body as Record<string, unknown> }),
@@ -50,6 +50,23 @@ test("a step run again reuses the result already written instead of calling the 
   const again = deps("answer", artifacts);
   again.model = createQuickMockModel("vote");
   assert.deepEqual(await quickAnswer(CASE, submission, "es", MODEL, "grok", 0, again), first);
+});
+
+test("a majority summary is audited, uses no tools and reuses its recorded result on replay", async () => {
+  const artifacts = new MemoryArtifactStore();
+  const audit: Array<{ id: string; body: Record<string, unknown> }> = [];
+  const majorities = [{ verdict: "falso" as const, votes: [{ by: "grok" as const, rationale: "El dato no coincide." }] }];
+  const first = await quickSummarize(CASE, "es", MODEL, majorities, 0, deps("summary", artifacts, audit));
+  assert.ok(!failed(first));
+  assert.match(first.text, /SIMULACIÓN LOCAL/);
+  const files = await artifacts.read(CASE);
+  const request = JSON.parse(new TextDecoder().decode(files.get("quick/judge/summary-0/request.json")));
+  assert.deepEqual(request.tools, []);
+  assert.match(JSON.stringify(request.messages), /El dato no coincide/);
+  assert.deepEqual(audit.map((entry) => entry.id), ["quick:judge:summary:0"]);
+  const replay = deps("summary", artifacts);
+  replay.model = { ...createQuickMockModel("summary"), doGenerate: async () => { throw new Error("unexpected call"); } } as unknown as QuickPlayDependencies["model"];
+  assert.deepEqual(await quickSummarize(CASE, "es", MODEL, majorities, 0, replay), first);
 });
 
 test("a model failure and a vote that does not parse are results for the orchestration to retry", async () => {
@@ -114,6 +131,7 @@ test("the optional quick flow runs end to end through simulated calls for text, 
       answer: (by, attempt, claims) => quickAnswer(CASE, selected, "es", MODEL, by, attempt, deps("answer", artifacts), claims),
       vote: (by, answer, attempt, retry, claim) => quickVote(CASE, selected, "es", MODEL, by, answer, attempt, retry, deps("vote", artifacts), claim),
       tiebreak: (entries, attempt, claim) => quickTiebreak(CASE, selected, "es", MODEL, entries, attempt, deps("tiebreak", artifacts), claim),
+      summarize: (majorities, attempt) => quickSummarize(CASE, "es", MODEL, majorities, attempt, deps("summary", artifacts)),
       commit: async (batch) => void events.push(...batch),
     });
     const view = project(events);
@@ -121,6 +139,7 @@ test("the optional quick flow runs end to end through simulated calls for text, 
     assert.equal(view.claims.length, 2);
     assert.ok(view.claims.every((claim) => claim.judgment?.verdict === "no_verificable" && Object.keys(claim.votes).length === 4));
     assert.equal(view.contentJudgment?.verdict, "no_verificable");
-    assert.equal((await artifacts.read(CASE)).size, 34);
+    assert.match(view.summary ?? "", /SIMULACIÓN LOCAL/);
+    assert.equal((await artifacts.read(CASE)).size, 36);
   }
 });

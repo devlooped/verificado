@@ -14,7 +14,8 @@ export async function cancelCaseRun(runId: string): Promise<void> {
 }
 
 export async function startCourtSession(caseId: string, latestPipeline = false): Promise<void> {
-  await startCaseWorkflow(caseId, () => start(courtSession, latestPipeline ? [caseId, true] : [caseId]), cancelCaseRun);
+  // The explicit flag keeps the replay of runs started before summaries unchanged.
+  await startCaseWorkflow(caseId, () => start(courtSession, [caseId, latestPipeline, true]), cancelCaseRun);
 }
 
 // No live implementation/fallback until the remaining safety gates are proved.

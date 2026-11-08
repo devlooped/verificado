@@ -8,7 +8,7 @@ import { mockInstructionArtifacts } from "../instruction/mock.ts";
 import { getImage, saveCaseAuditRecord } from "../store.ts";
 import { createQuickMockModel } from "./mock.ts";
 import { MOCK_MODEL_ID, modelEffort, withoutEffort, type CourtModel } from "./models.ts";
-import { quickClaimsPrompt, quickClaimsSchema, quickPrompt, quickTiebreakPrompt, quickTiebreakSchema, quickVoteMessages, quickVoteSchema, type QuickAnswer, type QuickClaims, type QuickDecision, type QuickEntry, type QuickFailure, type QuickImage, type QuickVote } from "./quick.ts";
+import { quickClaimsPrompt, quickClaimsSchema, quickPrompt, quickSummaryPrompt, quickTiebreakPrompt, quickTiebreakSchema, quickVoteMessages, quickVoteSchema, type QuickAnswer, type QuickClaims, type QuickDecision, type QuickEntry, type QuickFailure, type QuickImage, type QuickMajority, type QuickSummary, type QuickVote } from "./quick.ts";
 
 // The live calls of a Quick check, one per workflow step. Each writes its
 // request and result to the case artifacts and a model_step audit record, so
@@ -30,7 +30,7 @@ export type QuickPlayDependencies = {
 const live: QuickPlayDependencies = { artifacts: caseArtifactStore, audit: saveCaseAuditRecord, getImage };
 
 // A local simulation (`npm run dev:mock`): files in memory, no audit records, a scripted model.
-export function simulatedQuickDependencies(step: "claims" | "answer" | "vote" | "tiebreak"): QuickPlayDependencies {
+export function simulatedQuickDependencies(step: "claims" | "answer" | "vote" | "tiebreak" | "summary"): QuickPlayDependencies {
   return { artifacts: mockInstructionArtifacts, audit: async () => {}, getImage, model: createQuickMockModel(step) };
 }
 
@@ -69,7 +69,7 @@ async function readStored(caseId: string, path: string, deps: QuickPlayDependenc
 // reused, so a completed paid call is not paid again; otherwise the model is
 // called, and its failure is a result too, for the orchestration to retry.
 async function generation(caseId: string, deps: QuickPlayDependencies, call: {
-  seat: Seat; step: "claims" | "answer" | "vote" | "tiebreak"; attempt: number; sequence: number; model: CourtModel; claim?: Claim;
+  seat: Seat; step: "claims" | "answer" | "vote" | "tiebreak" | "summary"; attempt: number; sequence: number; model: CourtModel; claim?: Claim;
   request: () => Promise<Record<string, unknown>>; generate: () => Promise<Omit<Stored, "at">>;
 }): Promise<Stored> {
   const root = `quick/${call.seat}/${call.claim ? "claims/" + call.claim.id + "/" : ""}${call.step}-${call.attempt}`;
@@ -181,4 +181,21 @@ export async function quickTiebreak(caseId: string, submission: Submission, lang
   });
   if (result.error) return { error: result.error };
   return { ...quickTiebreakSchema.parse(result.output), at: result.at };
+}
+
+export async function quickSummarize(caseId: string, language: string, model: CourtModel, majorities: QuickMajority[], attempt: number, injected?: QuickPlayDependencies): Promise<QuickSummary | QuickFailure> {
+  const deps = injected ?? live;
+  const prompt = quickSummaryPrompt(language, majorities);
+  const result = await generation(caseId, deps, {
+    seat: "judge", step: "summary", attempt, sequence: 4 + attempt, model,
+    request: async () => ({ providerOptions: model.providerOptions, system: prompt.system, messages: prompt.messages, tools: [] }),
+    generate: async () => {
+      const generated = await generateText({ model: deps.model ?? gateway(model.id), providerOptions: model.providerOptions, system: prompt.system, messages: prompt.messages,
+        stopWhen: stepCountIs(1), maxRetries: 0, abortSignal: AbortSignal.timeout(QUICK_ANSWER_MS) });
+      const text = generated.text.trim();
+      return text ? { text, messages: generated.responseMessages, usage: generated.usage } : { error: "empty summary", usage: generated.usage };
+    },
+  });
+  if (result.error || !result.text?.trim()) return { error: result.error ?? "empty summary" };
+  return { text: result.text.trim(), at: result.at };
 }

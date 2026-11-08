@@ -5,7 +5,8 @@ import { assertDedicatedContainer, assertLocalDockerEndpoint, type ContainerProo
 
 const own = { context: "desktop-linux", nonce: "execution", name: "fixture", image: "sha256:image", network: "fixture-net", networkId: "network", containerId: "container", started: Date.now() - 1000, parentPid: 1 };
 function proof(): ContainerProof {
-  return { id: "container", name: "/fixture", image: "sha256:image", labels: { "io.grokeado.generational-fixture": "execution" }, running: true, startedAt: new Date().toISOString(),
+  const now = new Date().toISOString();
+  return { id: "container", name: "/fixture", image: "sha256:image", labels: { "io.grokeado.generational-fixture": "execution" }, running: true, startedAt: now, observedAt: now,
     mounts: [], tmpfs: { "/var/lib/postgresql/data": "rw", "/var/run/postgresql": "rw", "/tmp": "rw" }, privileged: false, readonly: true, binds: null,
     networkMode: "fixture-net", ports: { "5432/tcp": [{ HostIp: "127.0.0.1", HostPort: "25432" }] }, networks: { "fixture-net": { IPAddress: "172.30.0.2" } } };
 }
@@ -16,6 +17,20 @@ test("fixture accepts local named pipe/socket and rejects remote Docker endpoint
 test("fixture requires exact execution ownership, image, running state and creation time", () => {
   assert.deepEqual(assertDedicatedContainer(proof(), own), { port: 25432, address: "172.30.0.2" });
   for (const patch of [{ id: "other" }, { name: "/other" }, { image: "other" }, { labels: {} }, { running: false }, { startedAt: "2000-01-01" }]) assert.throws(() => assertDedicatedContainer({ ...proof(), ...patch }, own));
+});
+test("fixture uses one daemon clock despite host/VM skew and rejects missing, stale, future or backward timestamps", () => {
+  for (const skew of [-300_000, 300_000]) {
+    const started = Date.now() + skew;
+    const container = { ...proof(), startedAt: new Date(started + 100).toISOString(), observedAt: new Date(started + 200).toISOString() };
+    assert.deepEqual(assertDedicatedContainer(container, { ...own, started }), { port: 25432, address: "172.30.0.2" });
+    for (const patch of [
+      { startedAt: new Date(started - 1001).toISOString() },
+      { startedAt: new Date(started + 201).toISOString() },
+      { observedAt: new Date(started - 1).toISOString() },
+      { startedAt: "invalid" }, { observedAt: "invalid" }, { observedAt: "" },
+    ]) assert.throws(() => assertDedicatedContainer({ ...container, ...patch }, { ...own, started }));
+    assert.throws(() => assertDedicatedContainer(container, { ...own, started: NaN }));
+  }
 });
 test("fixture rejects user/anonymous volumes, bind mounts and writable or privileged containers", () => {
   for (const patch of [{ mounts: [{ Type: "volume", Destination: "/var/lib/postgresql/data" }] }, { mounts: [{ Type: "bind", Destination: "/tmp" }] }, { binds: ["user-path:/tmp"] }, { tmpfs: {} }, { readonly: false }, { privileged: true }]) assert.throws(() => assertDedicatedContainer({ ...proof(), ...patch }, own));

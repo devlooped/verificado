@@ -121,9 +121,11 @@ function responses({ spec, record, submission, native }: MockTurn): Call[][] {
 // A Quick check: the analyst's answer in prose, its typed vote on the whole
 // content, and the moderator's tie-break. Every analyst votes the same way, so a
 // simulated case resolves by consensus.
-export function createQuickMockModel(step: "claims" | "answer" | "vote" | "tiebreak") {
+export function createQuickMockModel(step: "claims" | "answer" | "vote" | "tiebreak" | "summary") {
   const text = step === "answer"
     ? prefix + "Respuesta ficticia para probar el chequeo rápido; no busqué ni verifiqué el material enviado.\nLas fuentes de esta simulación no existen."
+    : step === "summary"
+    ? prefix + "La mayoría considera que el contenido no es verificable: esta simulación no realizó ninguna verificación real."
     : JSON.stringify(step === "claims"
       ? { claims: [{ quote: "", text: prefix + "Primera afirmación ficticia para probar el flujo." }, { quote: "", text: prefix + "Segunda afirmación ficticia para probar el flujo." }] }
       : step === "vote"

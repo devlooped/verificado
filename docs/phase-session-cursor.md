@@ -13,7 +13,7 @@ siempre queda `blocked`; no cambia ninguna ruta, publicación, workflow o replay
 | Expert 2–5 | PhaseSession por fase/asiento/canal, CAS y exportación offline | Cursor de contexto no equivale a cursor de procedimiento ni resultados de una ronda publicada. |
 | Expert instrucción/cotejo/revisión | Turnos, propuestas y progreso local | Conteos no reconstruyen FetchedUrl; fuentes/errores/artefactos requieren resultados completos y procedencia. |
 | Expert debate/objeciones/votos/desempates/resumen | TurnSpec y eventos históricos | Faltan dependencias, prefijos completos, resultados por unidad y publicación atómica; no repetir ni inferir turnos. |
-| Quick 5 textual sin claims | Ocho resultados cotejables offline y consenso puro sobre prefijo exacto 9/sufijo 11 | Sin recuperación de asientos parciales, intentos/retries, identificación o desempates. |
+| Quick 5 textual sin claims | Ocho resultados cotejables offline y consenso puro sobre prefijo exacto 9/sufijo 11 para el flujo anterior sin resumen | Sin recuperación de asientos parciales, intentos/retries, identificación o desempates. El flujo nuevo con resumen requiere un paso adicional y no está cubierto por ese consenso puro. |
 | Quick 1–4, claims, imágenes/enlaces | Orquestador legacy | Sin adaptador probado; Quick no usa PhaseSession. |
 | Portada, archivo, traducción/cierre de evidencia | Efectos separados posteriores o dentro de la fase | Cierre de sesión no prueba que estos efectos terminaron; fencing, procedencia y retención sin demostrar. |
 

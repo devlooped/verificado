@@ -18,8 +18,12 @@ consultaron journal, proveedores, Blob ni producción. No hay prueba de que
   dependencias, efectos, símbolos de evidencia y huecos. Los nombres son de
   diseño; **no** son claves ya implementadas ni un nuevo formato histórico.
 - [`continuation-effect-sites.json`](continuation-effect-sites.json): snapshot
-  reproducible de 122 sitios sintácticos de efectos, pasos workflow y `TurnSpec`
-  en la base acotada de pasos 2–3; no es una prueba exhaustiva de efectos alcanzables.
+  reproducible de 129 sitios sintácticos de efectos, pasos workflow y `TurnSpec`
+  en el árbol compartido actual, incluida la base separada de same-run retry;
+  no es una prueba exhaustiva de efectos alcanzables. Se revisaron los cuatro
+  sitios nuevos: arranque inicial one-shot, instalación explícita de schema y
+  transacciones de creación/publicación. No se eliminaron sitios previos ni se
+  cambió la secuencia de pasos o `TurnSpec`; actualizarlo no habilita una ruta.
 - [`../scripts/continuation-inventory.ts`](../scripts/continuation-inventory.ts):
   inspector de sólo lectura usando el parser que ya incluye Next. Sólo lee
   fuentes bajo `src/` y `sandbox/harness/`; no importa la aplicación, carga
@@ -425,6 +429,18 @@ PostgreSQL protegidas de retención/replay y de carreras DELETE/POST pasaron;
 la de replay se repitió con casos incompletos y checkpoints ausentes en estados
 queued/failed/resolved, sin avanzar ni recrear estado durable. No se ejecutó
 el motor Workflow ni Sandbox/Blob/proveedores reales.
+
+## Nuevo despacho Expert (retry deshabilitado)
+
+El nuevo sitio `expert-turn.generateRetryExpertText → generateText` está
+inventariado por separado. Sólo es alcanzable por un adaptador explícito del
+ejecutor nuevo, después del claim durable; declara herramientas sin execute,
+`maxRetries=0`, un step y deadline original. La normalización y cada herramienta
+son unidades propias. Los callbacks de deployment no están detectados como
+sinks por el scanner sintáctico: requieren revisión y verificación además de
+estos conteos. El procedimiento nuevo no invoca `runProcedure` ni los efectos
+legacy de fuentes/archivo/cleanup. Ver [retry-workflows.md](retry-workflows.md)
+para checkpoints, límites de fixtures y requisitos todavía pendientes.
 
 ## Verificación segura y límites
 

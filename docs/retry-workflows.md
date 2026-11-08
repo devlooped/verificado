@@ -1,16 +1,19 @@
 # Retry de workflows nuevos: base verificada, rutas bloqueadas
 
-Estado: **implementación parcial del paso 1 y probe local del mecanismo del paso
-5**. No existe todavía un productor de casos con este contrato, almacenamiento
-transaccional de intentos, workflow Quick/Expert nuevo ni acción de reanudación.
-No se completó el plan; ningún caso, incluido `AT-185-GA`, es reintentable.
+Estado: **implementación parcial y aislada**, con almacenamiento transaccional de
+intentos, creación exclusiva, motor/cursores Quick y Expert offline, controlador y observación real
+de hooks. No hay entrypoint ni creación/acción/UI productivos conectados. Los
+adaptadores reales de efectos y las garantías de retención/deployment no están
+acreditados. No se completó el plan; ningún caso, incluido `AT-185-GA`, es
+reintentable. Retry y continuación siguen deshabilitados.
 
 ## Contrato separado, exclusivamente desde creación
 
 [`retry-contract.ts`](../src/domain/retry-contract.ts) define `same-run-retry/1`.
 No es pipeline 6, una generación de continuación ni un importador histórico.
 Los perfiles de diseño son **Quick con pipeline 5** y **Expert nativo con pipeline
-5** en un workflow nuevo, todavía no implementado. Ambos siguen bloqueados.
+5** en un workflow nuevo. Los cursores Quick y Expert están implementados sólo para simulación;
+ambos perfiles reales siguen bloqueados.
 Los pipelines anteriores no se incorporan al contrato; tampoco se convierte un
 caso legacy pipeline 5 en elegible. No se modificaron las firmas ni la secuencia
 de pasos de `courtSession`, ni los entry points administrativos existentes.
@@ -35,24 +38,26 @@ El contrato requiere:
   subefecto antes de habilitar el perfil.
 
 El parser valida formato, JSON no perdedor y hashes, **no completitud semántica
-de un panel** ni autenticidad del registro de creación. La futura transacción de
-creación debe registrar ese contrato junto con el caso; no puede existir una API
-para adjuntarlo después. El preflight exige prueba de creación atómica y de
-arranque conciliado, no sólo un documento con hashes recalculados. Hoy no hay
-esa transacción ni lectores de esas pruebas: no se inscriben casos nuevos o viejos.
+de un panel** ni autenticidad del registro de creación. La transacción aislada de
+`PgRetryRepository.create` registra contrato/caso/auditoría mediante INSERT
+exclusivo, nunca lo adjunta a casos existentes. El preflight exige prueba de
+creación atómica y de arranque conciliado, no sólo hashes recalculados. La app
+todavía no llama esa transacción: no inscribe casos nuevos ni viejos.
 
 `RetryFence` separa run, intento y época del mismo run. `retryCommandSchema`
 sólo admite clave de solicitud, versión y estado esperado; rechaza contenido
 privado, tokens y campos extra. `retryCommandMatches` es validación de payload,
-**no autorización, deduplicación durable ni CAS**. El futuro consumidor debe
-validar identidad, admin y solicitud bajo lock; el token nunca autoriza.
+**no autorización, deduplicación durable ni CAS**. El consumidor del repositorio
+valida identidad, admin registrado y solicitud bajo lock; el token nunca autoriza.
+La autorización real por caso requiere el adaptador administrativo, aún no conectado.
 
 ## Matriz inicial de unidades y subefectos
 
 Esta matriz revisa las ramas nuevas propuestas contra `court-session.ts`,
 `quick.ts`, `procedure.ts`, `settled-play.ts`, colección/sources, portada y archivo.
 Reutiliza el inventario anterior como índice, no como prueba de cobertura. Las
-claves son **plantillas**, no checkpoints implementados. No hay unidad habilitada.
+claves son **plantillas de cobertura requerida**; el cursor Quick simulado produce
+sus propios checkpoints, sin acreditar las rutas reales. No hay unidad habilitada.
 `Q` = Quick; `E` = Expert; `Q/E` = ambos perfiles nuevos de pipeline 5.
 
 Todas las instancias requieren formato, dependencias exactas, entrada completa
@@ -114,6 +119,75 @@ de cada perfil (claims, idioma explícito, consenso, portada propia, sin storage
 sí necesitan registros de omisión; ausencia de configuración de storage no
 autoriza descartar evidencia requerida por retry.
 
+### Cursor Expert offline: evidencia, no adaptador productivo
+
+[`expert.ts`](../src/retry/expert.ts) exige habilitación explícita de simulación,
+World/deployment de fixture y modelos sintéticos. Separa preparación, generación
+y cada resultado de herramienta por asiento/intento; conserva mensajes, draft,
+presupuestos, timestamps y eventos originales. Cada frontera está anclada a un
+checkpoint y sus dependencias verificadas. Asientos completos no se vuelven a
+llamar; dos fallos pre-dispatch requieren dos pausas y solicitudes distintas.
+Los timeouts, respuestas perdidas y resultados inválidos bloquean sin publicar
+una ronda parcial. El driver espera todos los asientos, incluso si un adaptador
+lanza una excepción síncrona, antes de bloquear o cambiar de intento.
+
+La simulación se detiene antes de fuentes y también tras desestimación: **no
+termina un caso Expert**. Usa un máximo sintético de dos intentos por turno;
+conservar el snapshot de presupuestos no demuestra su enforcement productivo.
+Faltan preparación/generación/herramientas reales, procedimiento multi-turno,
+fuentes, revisión, debate, objeciones, fallos/votos, traducción, portada, archivo
+y cleanup. `nextRetryExpertPlan` bloquea por defecto la ruta real.
+
+[`expert-phase.ts`](../src/retry/expert-phase.ts) es un adaptador separado de
+checkpoints nuevos con CAS y cadena de hashes, probado en memoria y PostgreSQL
+efímero. Conserva
+resultados, prefijos de mensajes/eventos y la identidad de `activeTurn` al leer.
+No habilita el runtime legacy `PhaseSession` ni demuestra sus subefectos reales.
+La fachada nueva `RetryExpertSession.open` enlaza esa entrada al snapshot de
+creación y entrega el prompt original al repositorio al restaurar. `begin`
+registra antes una unidad con task, record completo y presupuesto; rechaza
+cambios incluso al reutilizar turnos completos, sin renovar su deadline. La
+fachada sólo maneja checkpoints: no ejecuta la orquestación Expert legacy.
+
+### Integración nueva de procedimiento y despacho Expert
+
+`expert-procedure.ts` implementa un cursor separado de `runProcedure`: intake,
+instrucción, fuentes/revisión/settle, aperturas y réplicas con objeciones,
+respuestas y resoluciones, cierres/votos/desempates, resumen y post-proceso.
+Cada avance requiere un marcador durable anclado a sus dependencias; una
+ronda conserva resultados por asiento y publica eventos en orden, bajo fence.
+
+`expert-turn.ts` fija el submission, task/record, prompts iniciales y de sistema,
+modelos/opciones, herramientas y presupuesto de creación. Conserva ambas
+conversaciones entre turnos. Descompone cada turno en pin → generación → cada
+normalización de prosa → cada herramienta → completion; conserva también
+la salida typed original y las propuestas/votos descartados con sus motivos.
+No traduce la cita textual de una propuesta de instrucción.
+
+`executeRetryExpertUnit` coteja la unidad con el plan vigente, registra el
+claim transaccional antes de resolver modelo o despachar herramienta y publica
+su resultado por propietario/época. No tiene gateway ni herramientas legacy
+por defecto. La generación usa el SDK instalado, `maxRetries=0` y un solo
+step, con declaraciones de herramientas **sin** callbacks de ejecución. El
+presupuesto original no se renueva. Una respuesta perdida de COMMIT reutiliza
+sólo el resultado durable exacto; una excepción de proveedor queda incierta.
+
+`expert-tool.ts` aplica exclusivamente acciones locales del tribunal al
+submission fijado, sin lector/traductor/red/sandbox/archivo. Exige corpus
+settled coincidente para debate. Una decisión completa, incluido `pass` sin
+evento, no se reabre por otra llamada de la misma generación. Normalización y
+herramientas externas necesitan adaptadores explícitos de deployment: no se
+permiten despachadores opacos de un turno, ronda o colección enteros.
+
+Las pruebas conectan el procedimiento al ejecutor y al repositorio durable con
+modelos simulados del SDK. Fuentes, settle y post son primitivas **de fixture**,
+no adaptadores productivos. Siguen pendientes el linkage de creación/entrypoint
+productivo, herramientas nativas de proveedor, adquisición/objetos/archivo y
+cleanup completos, validadores confiables de inactividad, retención y World.
+Ni esta integración ni la fachada de fase habilitan retry; los flags siguen
+en `false`. La verificación global actual de 749 tests cubre esta integración
+local; no demuestra los adaptadores ni las garantías productivas pendientes.
+
 ## Preflight puro y estados
 
 `retryPreflight` es un reductor de observaciones, no un lector operativo. No
@@ -130,7 +204,7 @@ estados distintos. `running` e `uncertain` bloquean aun con lease vencido.
 pendiente; costo desconocido, inválido o no finito devuelve `null`, nunca cero.
 Un estimado es diagnóstico, no garantía de cobro exactamente una vez.
 
-La futura pausa seguirá `pausing` → hook registrado en journal → `paused`,
+La pausa aislada sigue `pausing` → hook registrado en journal → `paused`,
 conciliando la ventana DB/hook. Un caso pausado mantiene run SDK `running`.
 Un run `completed`, `failed` o `cancelled` es terminal; hook ausente, journal
 perdido o deployment inaccesible bloquean sin reset, Re-run ni `start`.
@@ -138,6 +212,50 @@ La acción y el consumidor requieren autorización por admin/caso y deduplicaci�
 durable propia. Respuesta perdida de `resumeHook` no se anuncia como éxito.
 
 ## Probe reproducible del SDK y World local
+
+### Protocolo de aplicación aislado
+
+`src/retry/repository.ts` tiene instalación explícita y `read` sin bootstrap/DDL.
+Cada mutación toma primero el lock del caso y publica cuerpo, eventos y auditoría
+atómicamente. Conserva resultados completos, errores/pruebas y pausas; verifica
+el hash del cuerpo contra la última auditoría. Colisiones bloquean sin repair.
+
+`initial-start.ts` concilia candidato/observación con un claim durable único;
+respuesta perdida nunca autoriza otro start. Una solicitud aceptada autoriza
+sólo la unidad nombrada por su pausa: otro asiento fallido requiere otra solicitud.
+`executeRecordedUnit` registra intención antes del efecto, reutiliza resultados
+completos y bloquea estados inciertos. `RetryBeforeEffectFailure` sólo puede
+provenir de validación **anterior al despacho** de un adaptador auditado. Las
+cadenas de prueba no autentican a un proveedor; faltan validadores confiables.
+
+El motor espera todos los asientos antes de cambiar fence/pausar. Quick usa su
+cursor durable y snapshot original, no reinicia la orquestación legacy. El
+controlador de inspección no escribe ni expone tokens/inputs/resultados/pruebas;
+el de despacho permite un emisor único y nunca redespacha una respuesta ambigua.
+La acción/UI productiva todavía no los llama.
+
+`hook-registration.ts` lee run, token y journal correlacionado paginado del World
+instalado. Exige un único `hook_created`; rechaza disposal/force claim, terminales,
+identidades distintas y paginación incompleta. Revalida run/hook antes de confirmar
+`paused`, sin afirmar lock entre World y DB, retención ni disponibilidad del código.
+Los writers legacy/start/stop/reset/delete rechazan el marker nuevo bajo lock.
+
+```powershell
+node --import tsx scripts/test-local-retry-integration.ts
+node --import tsx --test src/local-retry-integration.test.ts
+```
+
+Este segundo probe ejecuta el motor/cursor de la aplicación con SDK instalado,
+repo de memoria, steps `maxRetries=0` y lectura real de hook/journal. Comprueba dos
+pausas/autorizaciones, pérdida de respuestas de start/resume, claim concurrente,
+entrega duplicada y preservación de resultados. Una respuesta externa perdida
+bloquea. Una barrera de fixture permite escribir el duplicado antes de desechar
+el primer hook; no es permiso de redispatch. El bundle usa la fuente local del
+motor/helper de nombres de tsx: no prueba el transform de Next ni proveedores,
+PostgreSQL o retención. Usa un child limpio/journal temporal propio con guards
+de fetch/socket y cleanup, con los mismos límites de aislamiento del probe básico.
+
+### Probe básico del mecanismo
 
 ```powershell
 node --import tsx scripts/test-local-retry-hooks.ts
@@ -199,19 +317,25 @@ Antes de aceptar referencias/habilitar, falta demostrar en un entorno autorizado
 4. Intenciones previas a cada subllamada; evidencia inequívoca para conciliar
    efectos inciertos; nueva llamada sólo con autorización específica auditada
    y prueba de inactividad anterior. Nada de takeover por expiración de lease.
-5. Pruebas reales de transacciones/CAS/rollback/PhaseSession en PostgreSQL
-   efímero, almacenamiento de objetos aislado, concurrencia y fallos por frontera.
+5. Pruebas adicionales de subefectos Expert, almacenamiento de objetos aislado
+   y fallos por cada frontera real; el check de fase sólo verifica checkpoints.
 
-No se ejecutó el fixture PostgreSQL anterior como sustituto: verifica operaciones
-generacionales, no intentos del mismo run, y no verifica las operaciones nuevas
-de PhaseSession requeridas. [`generational-postgres.md`](generational-postgres.md)
-documenta el aislamiento que debe reutilizar la futura fixture sin conectar a
-la base existente ni cargar `.env`. No hay nuevas operaciones SQL en esta entrega.
+El modo `--retry` del fixture PostgreSQL dedicado verifica operaciones nuevas del
+mismo run, separado de las pruebas generacionales. Pasó en PostgreSQL 17.11/read
+committed: creación/claims concurrentes, lock real, rollback de publicación/audit,
+colisiones, respuesta COMMIT perdida, dos pausas Quick y writers tardíos. Un
+quinto check verifica checkpoints de fase Expert: cuatro saves concurrentes
+(un único CAS), restauración de resultados/mensajes/deadline, reutilización de
+turno completo, cambio de intento del mismo run, escritor previo rechazado sin
+mutación y pérdida de respuesta tras el COMMIT real del resultado. No verifica
+subefectos reales de PhaseSession, objetos ni hooks SDK en esa misma transacción. El doble de
+transporte pierde una respuesta después del COMMIT real, sin simular el SQL.
+Ver aislamiento y límites en [`generational-postgres.md`](generational-postgres.md).
 
 El despliegue y las verificaciones remotas requieren autorización separada según
 el plan. Rollback conserva expediente/journal/objetos y bloquea nuevas
-reanudaciones; no vuelve a reset. En esta entrega no hay rutas que deshabilitar:
-todo permanece cerrado y el código histórico no se modifica.
+reanudaciones; no vuelve a reset. No hay rutas habilitadas; las firmas/secuencias
+históricas permanecen intactas y sus writers ahora rechazan el marker nuevo.
 
 ## Verificación de esta entrega
 
@@ -222,6 +346,28 @@ todo permanece cerrado y el código histórico no se modifica.
   El test aislado y una nueva corrida completa posterior pasaron (682/682).
   No se cambió ese test; se propuso una tarea de investigación, sin afirmar
   una causa no demostrada.
-- PostgreSQL, objetos remotos, proveedores y control plane de producción
-  **no verificados** por esta entrega. No se cerró ninguno de los criterios
-  de aceptación end-to-end del plan ni se habilitó una ruta.
+- La continuación pasó cinco checks PostgreSQL reales dedicados, 48 tests
+  dirigidos de protocolo/controlador/observador, cursores e integración SDK.
+- La primera corrida global del árbol integrado falló en dos expectativas SQL
+  de rutas y el inventario de efectos. Se actualizaron las fixtures para el
+  marker de contrato y los cuatro sitios de efectos revisados, sin relajar
+  guards ni ejecutar sus efectos. Pasaron 13 tests dirigidos de esas fixtures.
+- Antes del nuevo procedimiento/ejecutor Expert, la corrida sustitutiva
+  `job-fdd398a7` pasó `npm test` (730/730, sin skips),
+  `npm run typecheck` y `npm run build`, secuencialmente y con validación de
+  15 server traces. Este resultado corresponde al árbol integrado, no al
+  baseline de 682 tests. No prueba entrypoints nuevos aún no implementados
+  ni adaptadores productivos.
+- La integración Expert pasó 27 tests dirigidos sin skips (`job-ba489190`):
+  procedimiento hasta cierre con SDK simulado y acciones locales, inputs
+  originales, reutilización tras COMMIT perdido, exclusión concurrente,
+  autorización independiente de fallos y bloqueo ante corrupción/ambigüedad.
+  La fixture respeta la separación instrucción/debate; fuentes/settle/post
+  son simulados.
+- La verificación global posterior (`job-7c52d19b`) pasó `npm test`
+  (749/749, sin skips ni cancelaciones), typecheck y build secuenciales,
+  incluyendo las verificaciones de browser registry e instruction harness
+  en 15 server traces. Diff revisado y `git diff --check` limpio.
+- Objetos remotos, proveedores y control plane de producción
+  **no verificados**. Los criterios funcionales de aceptación end-to-end
+  del plan siguen abiertos y no se habilitó una ruta.

@@ -46,12 +46,13 @@ test("the quick diagram shows the independent vote, majority, tiebreak and failu
     "Por cada resultado:",
     "contenido completo con fundamentos",
     "Resultado por mayoría",
+    "El moderador resume los fundamentos",
     "¿Hay al menos 3 votos?",
     "Sin resultado",
     "las respuestas y los votos, sin investigar",
     "Resultado con fundamento del moderador",
   ]) assert.ok(svg.textContent?.replace(/\s/g, "").includes(text.replace(/\s/g, "")), text);
-  for (const edge of ["O -- Sí --> P", "O -- No --> B", "P --> B", "E -- Sí --> F", "E -- No --> G", "G -- No --> H", "G -- Sí --> I", "J -- No --> H"]) {
+  for (const edge of ["O -- Sí --> P", "O -- No --> B", "P --> B", "E -- Sí --> F", "F --> L", "M -- No --> H", "E -- No --> G", "G -- No --> H", "G -- Sí --> I", "J -- No --> H"]) {
     assert.ok(QUICK_PROCESS_DIAGRAM.includes(edge), edge);
   }
 });

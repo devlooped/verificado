@@ -27,7 +27,7 @@ function fakeDatabase(t: TestContext, row?: { status: string; workflow_run_id: s
 test("starting records the run while holding the case row lock", async (t) => {
   const calls = fakeDatabase(t, { status: "queued", workflow_run_id: null });
   await startCaseWorkflow("fixture", async () => { calls.push("start"); return { runId: "run-1" }; }, async () => { throw new Error("unexpected cancel"); });
-  assert.deepEqual(calls, ["BEGIN", "SELECT status, workflow_run_id, continuation_generation FROM cases WHERE id = $1 FOR UPDATE", "start", "UPDATE cases SET workflow_run_id = $2 WHERE id = $1", "COMMIT", "release"]);
+  assert.deepEqual(calls, ["BEGIN", "SELECT status, workflow_run_id, continuation_generation, retry_contract_version FROM cases WHERE id = $1 FOR UPDATE", "start", "UPDATE cases SET workflow_run_id = $2 WHERE id = $1", "COMMIT", "release"]);
 });
 
 test("a start that cannot be recorded cancels its newly created run", async (t) => {

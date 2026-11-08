@@ -6,10 +6,10 @@
   "boundedImplementation": {
     "scope": "steps-2-3-local-storage-and-pure-unit-only; no public continuation",
     "unit": "quick.content-consensus",
-    "supportedInputs": "Quick 5 text without identifyClaims: exactly session_opened, four ordered responses and four complete votes with at least three agreeing",
+    "supportedInputs": "Legacy Quick 5 text without identifyClaims or majority-summary step: exactly session_opened, four ordered responses and four complete votes with at least three agreeing",
     "cursor": "validated prefix hash, deterministic judgment/closed suffix at seq 10-11, nextSeq 12; checkpoint+events+phase+audit in one transaction",
     "evidence": ["src/court/quick-continuation.test.ts", "scripts/test-local-continuation.ts"],
-    "notProved": ["analyst-result recovery", "partial seats", "tiebreak", "historical import", "provider inactivity", "workflow wiring", "artifacts and post-close effects"]
+    "notProved": ["majority-summary workflow or provenance", "analyst-result recovery", "partial seats", "tiebreak", "historical import", "provider inactivity", "workflow wiring", "artifacts and post-close effects"]
   },
   "profiles": [
     {
@@ -1603,6 +1603,22 @@
           "file": "src/workflows/court-session.ts",
           "symbol": "tiebreakQuick"
         }
+      ]
+    },
+    {
+      "id": "quick.summary",
+      "routes": ["quick:1", "quick:2", "quick:3", "quick:4", "quick:5"],
+      "dependsOn": ["quick.vote", "quick.tiebreak"],
+      "key": "quick/judge/summary/attempt/request-hash",
+      "result": "QuickSummary no vacío basado en mayorías; opcional según el flag fijado al iniciar el workflow; hasta 2 intentos",
+      "effects": ["model", "artifact", "sql"],
+      "evidence": [
+        { "file": "src/workflows/court-session.ts", "symbol": "summarizeQuick" },
+        { "file": "src/court/quick-play.ts", "symbol": "quickSummarize" }
+      ],
+      "gaps": ["G01", "G03", "G04", "G06"],
+      "workflowSteps": [
+        { "file": "src/workflows/court-session.ts", "symbol": "summarizeQuick" }
       ]
     },
     {

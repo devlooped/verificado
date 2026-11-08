@@ -26,7 +26,7 @@ function fakeDatabase(t: TestContext, status: string | undefined) {
 test("delete fails closed before aliases, Blob callbacks or cascading deletion, even with a no-op callback", async (t) => {
   const calls = fakeDatabase(t, "resolved");
   await assert.rejects(deleteCase("AA-123-BB", async () => { calls.push("blob"); }), SandboxCleanupBlockedError);
-  assert.deepEqual(calls, ["BEGIN", "SELECT status, stopped_workflow_run_id, continuation_generation FROM cases WHERE id = $1 FOR UPDATE", "ROLLBACK", "release"]);
+  assert.deepEqual(calls, ["BEGIN", "SELECT status, stopped_workflow_run_id, continuation_generation, retry_contract_version FROM cases WHERE id = $1 FOR UPDATE", "ROLLBACK", "release"]);
 });
 
 test("does not delete active or missing cases and rolls back if blob cleanup fails", async (t) => {
@@ -50,7 +50,7 @@ test("writes hold the exclusive fencing lock and stop if the case has been delet
   await t.test("existing", async (sub) => {
     const calls = fakeDatabase(sub, "resolved");
     assert.equal(await withCaseWriteLock("AA-123-BB", async () => { calls.push("write"); return 42; }), 42);
-    assert.deepEqual(calls, ["BEGIN", "SELECT id, continuation_generation, workflow_run_id, status, stopped_workflow_run_id FROM cases WHERE id = $1 FOR UPDATE", "write", "COMMIT", "release"]);
+    assert.deepEqual(calls, ["BEGIN", "SELECT id, continuation_generation, workflow_run_id, status, stopped_workflow_run_id, retry_contract_version FROM cases WHERE id = $1 FOR UPDATE", "write", "COMMIT", "release"]);
   });
   await t.test("deleted", async (sub) => {
     const calls = fakeDatabase(sub, undefined);

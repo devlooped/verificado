@@ -70,6 +70,7 @@ async function db(): Promise<Pool> {
        ALTER TABLE cases ADD COLUMN IF NOT EXISTS workflow_run_id TEXT;
        ALTER TABLE cases ADD COLUMN IF NOT EXISTS stopped_workflow_run_id TEXT;
        ALTER TABLE cases ADD COLUMN IF NOT EXISTS continuation_generation INTEGER NOT NULL DEFAULT 0;
+       ALTER TABLE cases ADD COLUMN IF NOT EXISTS retry_contract_version TEXT;
        CREATE TABLE IF NOT EXISTS case_continuation_generations (
          case_id TEXT NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
          generation INTEGER NOT NULL CHECK (generation > 0),
@@ -200,7 +201,7 @@ async function db(): Promise<Pool> {
         `SELECT case_id, seq, body FROM events WHERE body::text LIKE '%"openai"%'`
       );
       for (const row of rows) {
-        await p.query("WITH legacy AS (SELECT id FROM cases WHERE id = $2 AND continuation_generation = 0 FOR UPDATE) UPDATE events SET body = $1 WHERE case_id = $2 AND seq = $3 AND EXISTS (SELECT 1 FROM legacy)", [JSON.stringify(migrateLegacySeat(row.body)), row.case_id, row.seq]);
+        await p.query("WITH legacy AS (SELECT id FROM cases WHERE id = $2 AND continuation_generation = 0 AND retry_contract_version IS NULL FOR UPDATE) UPDATE events SET body = $1 WHERE case_id = $2 AND seq = $3 AND EXISTS (SELECT 1 FROM legacy)", [JSON.stringify(migrateLegacySeat(row.body)), row.case_id, row.seq]);
       }
     })
     .catch((err: unknown) => {
@@ -252,10 +253,11 @@ export async function createNewCase(submission: Submission, image?: Buffer, owne
 // All updated case writers lock the case BEFORE subordinate rows. Generation 0
 // is the legacy contract; it remains usable only while no reservation exists.
 async function assertCaseWriter(client: PoolClient, caseId: string, writer?: ContinuationWriter): Promise<void> {
-  const { rows } = await client.query<{ id: string; continuation_generation: number; workflow_run_id: string | null; status: string; stopped_workflow_run_id: string | null }>(
-    "SELECT id, continuation_generation, workflow_run_id, status, stopped_workflow_run_id FROM cases WHERE id = $1 FOR UPDATE", [caseId]);
+  const { rows } = await client.query<{ id: string; continuation_generation: number; workflow_run_id: string | null; status: string; stopped_workflow_run_id: string | null; retry_contract_version: string | null }>(
+    "SELECT id, continuation_generation, workflow_run_id, status, stopped_workflow_run_id, retry_contract_version FROM cases WHERE id = $1 FOR UPDATE", [caseId]);
   const row = rows[0];
   if (!row) throw new Error("El caso ya no existe.");
+  if (row.retry_contract_version != null) throw new Error("Case writer fenced: retry contract");
   if (!writer) {
     if ((row.continuation_generation ?? 0) !== 0) throw new Error("Case writer fenced: continuation generation reserved");
     return;
@@ -289,9 +291,9 @@ export async function recordBlockedContinuationReservation(caseId: string, input
   const client = await (await db()).connect();
   try {
     await client.query("BEGIN");
-    const { rows } = await client.query<{ status: string; revision: number; workflow_run_id: string | null; continuation_generation: number; pipeline_version: number }>("SELECT status, revision, workflow_run_id, continuation_generation, pipeline_version FROM cases WHERE id = $1 FOR UPDATE", [caseId]);
+    const { rows } = await client.query<{ status: string; revision: number; workflow_run_id: string | null; continuation_generation: number; pipeline_version: number; retry_contract_version: string | null }>("SELECT status, revision, workflow_run_id, continuation_generation, pipeline_version, retry_contract_version FROM cases WHERE id = $1 FOR UPDATE", [caseId]);
     const row = rows[0];
-    if (!row || row.status !== "failed" || row.revision !== input.expectedRevision || (row.workflow_run_id ?? undefined) !== input.expectedRunId || row.continuation_generation !== 0 || ![1,2,3,4,5].includes(row.pipeline_version)) throw new Error("Continuation reservation blocked: case changed or already reserved");
+    if (!row || row.retry_contract_version != null || row.status !== "failed" || row.revision !== input.expectedRevision || (row.workflow_run_id ?? undefined) !== input.expectedRunId || row.continuation_generation !== 0 || ![1,2,3,4,5].includes(row.pipeline_version)) throw new Error("Continuation reservation blocked: case changed or already reserved");
     const reservation = { generation: 1, token: randomUUID() };
     const body: ContinuationGeneration = { ...reservation, state: "blocked", pipeline: row.pipeline_version as PipelineVersion, adminId: input.adminId, reason: input.reason, inputHash: input.inputHash, at: new Date().toISOString(), ...(input.expectedRunId ? { sourceRunId: input.expectedRunId } : {}) };
     await client.query("INSERT INTO case_continuation_generations (case_id,generation,token,state,body) VALUES ($1,$2,$3,'blocked',$4)", [caseId,reservation.generation,reservation.token,JSON.stringify(body)]);
@@ -307,7 +309,8 @@ async function withContinuationReservation<T>(caseId: string, reservation: Conti
   const client = await (await db()).connect();
   try {
     await client.query("BEGIN");
-    const current = await client.query<{ continuation_generation: number }>("SELECT continuation_generation FROM cases WHERE id = $1 FOR UPDATE", [caseId]);
+    const current = await client.query<{ continuation_generation: number; retry_contract_version: string | null }>("SELECT continuation_generation, retry_contract_version FROM cases WHERE id = $1 FOR UPDATE", [caseId]);
+    if (current.rows[0]?.retry_contract_version != null) throw new Error("Case writer fenced: retry contract");
     const stored = await client.query<{ body: ContinuationGeneration; state: ContinuationGeneration["state"]; run_id: string | null; start_outcome: ContinuationStartOutcome | null; reconciled_run_id: string | null }>("SELECT body,state,run_id,start_outcome,reconciled_run_id FROM case_continuation_generations WHERE case_id = $1 AND generation = $2 AND token = $3 FOR UPDATE", [caseId,reservation.generation,reservation.token]);
     if (current.rows[0]?.continuation_generation !== reservation.generation || !stored.rows[0]) throw new Error("Continuation reservation fenced");
     const row = stored.rows[0];
@@ -430,8 +433,8 @@ export async function startCaseWorkflow(id: string, start: () => Promise<{ runId
   let runId: string | undefined;
   try {
     await client.query("BEGIN");
-    const { rows } = await client.query<{ status: CaseStatus; workflow_run_id: string | null; continuation_generation: number }>("SELECT status, workflow_run_id, continuation_generation FROM cases WHERE id = $1 FOR UPDATE", [id]);
-    if (!rows[0] || rows[0].status !== "queued" || rows[0].workflow_run_id || (rows[0].continuation_generation ?? 0) !== 0) throw new Error("El caso no está disponible para iniciar.");
+    const { rows } = await client.query<{ status: CaseStatus; workflow_run_id: string | null; continuation_generation: number; retry_contract_version: string | null }>("SELECT status, workflow_run_id, continuation_generation, retry_contract_version FROM cases WHERE id = $1 FOR UPDATE", [id]);
+    if (!rows[0] || rows[0].retry_contract_version != null || rows[0].status !== "queued" || rows[0].workflow_run_id || (rows[0].continuation_generation ?? 0) !== 0) throw new Error("El caso no está disponible para iniciar.");
     runId = (await start()).runId;
     await client.query("UPDATE cases SET workflow_run_id = $2 WHERE id = $1", [id, runId]);
     await client.query("COMMIT");
@@ -448,9 +451,9 @@ export async function stopCaseWorkflow(id: string, cancel: (runId: string) => Pr
   const client = await (await db()).connect();
   try {
     await client.query("BEGIN");
-    const { rows } = await client.query<{ status: CaseStatus; workflow_run_id: string | null; continuation_generation: number }>("SELECT status, workflow_run_id, continuation_generation FROM cases WHERE id = $1 FOR UPDATE", [id]);
+    const { rows } = await client.query<{ status: CaseStatus; workflow_run_id: string | null; continuation_generation: number; retry_contract_version: string | null }>("SELECT status, workflow_run_id, continuation_generation, retry_contract_version FROM cases WHERE id = $1 FOR UPDATE", [id]);
     const row = rows[0];
-    if (row && (row.continuation_generation ?? 0) !== 0) { await client.query("ROLLBACK"); return "unavailable"; }
+    if (row && (row.retry_contract_version != null || (row.continuation_generation ?? 0) !== 0)) { await client.query("ROLLBACK"); return "unavailable"; }
     if (!row || (row.status !== "queued" && row.status !== "in_session") || !row.workflow_run_id) {
       await client.query("ROLLBACK");
       return !row ? "missing" : row.status !== "queued" && row.status !== "in_session" ? "inactive" : "unavailable";
@@ -529,12 +532,12 @@ export async function deleteCase(id: string, deleteBlobs: (ids: string[]) => Pro
   const client = await (await db()).connect();
   try {
     await client.query("BEGIN");
-    const { rows } = await client.query<{ status: CaseStatus; stopped_workflow_run_id: string | null; continuation_generation: number }>("SELECT status, stopped_workflow_run_id, continuation_generation FROM cases WHERE id = $1 FOR UPDATE", [id]);
+    const { rows } = await client.query<{ status: CaseStatus; stopped_workflow_run_id: string | null; continuation_generation: number; retry_contract_version: string | null }>("SELECT status, stopped_workflow_run_id, continuation_generation, retry_contract_version FROM cases WHERE id = $1 FOR UPDATE", [id]);
     if (!rows.length) {
       await client.query("ROLLBACK");
       return "missing";
     }
-    if ((rows[0].continuation_generation ?? 0) !== 0 || (rows[0]!.status !== "resolved" && rows[0]!.status !== "failed")) {
+    if (rows[0].retry_contract_version != null || (rows[0].continuation_generation ?? 0) !== 0 || (rows[0]!.status !== "resolved" && rows[0]!.status !== "failed")) {
       await client.query("ROLLBACK");
       return "active";
     }
@@ -562,12 +565,12 @@ export async function restartCase(id: string, deleteBlobs: (ids: string[]) => Pr
   const client = await (await db()).connect();
   try {
     await client.query("BEGIN");
-    const { rows } = await client.query<{ status: CaseStatus; stopped_workflow_run_id: string | null; continuation_generation: number }>("SELECT status, stopped_workflow_run_id, continuation_generation FROM cases WHERE id = $1 FOR UPDATE", [id]);
+    const { rows } = await client.query<{ status: CaseStatus; stopped_workflow_run_id: string | null; continuation_generation: number; retry_contract_version: string | null }>("SELECT status, stopped_workflow_run_id, continuation_generation, retry_contract_version FROM cases WHERE id = $1 FOR UPDATE", [id]);
     if (!rows.length) {
       await client.query("ROLLBACK");
       return "missing";
     }
-    if ((rows[0].continuation_generation ?? 0) !== 0 || (expectedStatus && rows[0]!.status !== expectedStatus) || (rows[0]!.status !== "resolved" && rows[0]!.status !== "failed")) {
+    if (rows[0].retry_contract_version != null || (rows[0].continuation_generation ?? 0) !== 0 || (expectedStatus && rows[0]!.status !== expectedStatus) || (rows[0]!.status !== "resolved" && rows[0]!.status !== "failed")) {
       await client.query("ROLLBACK");
       return "active";
     }

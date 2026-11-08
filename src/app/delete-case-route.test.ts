@@ -31,7 +31,7 @@ test("authorized DELETE retains the case and returns cleanup_blocked with zero d
   t.mock.method(Pool.prototype, "connect", (async () => ({
     query: async (sql: string) => {
       queries.push(sql);
-      if (sql.startsWith("SELECT status")) return { rows: [{ status: "failed", continuation_generation: 0, stopped_workflow_run_id: "historical-run" }] };
+      if (sql.startsWith("SELECT status")) return { rows: [{ status: "failed", continuation_generation: 0, retry_contract_version: null, stopped_workflow_run_id: "historical-run" }] };
       assert.ok(["BEGIN", "ROLLBACK"].includes(sql), `unexpected effect: ${sql}`);
       return { rows: [] };
     }, release: () => {},
@@ -44,6 +44,6 @@ test("authorized DELETE retains the case and returns cleanup_blocked with zero d
   const response = await DELETE(new Request("https://example.test/api/cases/AA-123-BB", { method: "DELETE", headers: { origin: "https://example.test" } }), { params: Promise.resolve({ id: "AA-123-BB" }) });
   assert.equal(response.status, 409);
   assert.deepEqual(await response.json(), SANDBOX_CLEANUP_BLOCKED_RESPONSE);
-  assert.deepEqual(queries, ["BEGIN", "SELECT status, stopped_workflow_run_id, continuation_generation FROM cases WHERE id = $1 FOR UPDATE", "ROLLBACK"]);
+  assert.deepEqual(queries, ["BEGIN", "SELECT status, stopped_workflow_run_id, continuation_generation, retry_contract_version FROM cases WHERE id = $1 FOR UPDATE", "ROLLBACK"]);
   assert.equal(effects, 0);
 });

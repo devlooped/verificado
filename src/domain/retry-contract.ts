@@ -34,6 +34,8 @@ const contractSchema = z.strictObject({
   binding: z.strictObject({ runId: identity, deploymentId: identity, world: identity }),
 });
 export type RetryContract = z.infer<typeof contractSchema>;
+const creationSchema = contractSchema.omit({ binding: true });
+export type RetryCreation = z.infer<typeof creationSchema>;
 
 // Excludes the binding: creation must precede start(). The binding is admitted
 // only after the initial-start intent, run registration and observation reconcile.
@@ -57,6 +59,16 @@ export function parseRetryContract(value: unknown): RetryContract | null {
         contract.creation.snapshotHash !== retryCreationHash(contract)) return null;
     return contract;
   } catch { return null; } // Never expose prompts, submission or parser details.
+}
+
+export function parseRetryCreation(value: unknown): RetryCreation | null {
+  try {
+    continuationJson(value);
+    const parsed = creationSchema.safeParse(value);
+    if (!parsed.success || parsed.data.configurationHash !== continuationHash(parsed.data.configuration) ||
+        parsed.data.creation.snapshotHash !== retryCreationHash(parsed.data)) return null;
+    return parsed.data;
+  } catch { return null; }
 }
 
 export type RetryFence = { caseId: string; runId: string; attempt: number; epoch: number };
