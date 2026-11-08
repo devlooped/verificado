@@ -13,6 +13,7 @@ test("opening a new case awaits pipeline preflight and never reruns it for an ex
   t.mock.method(Pool.prototype, "connect", (async () => ({
     query: async (sql: string) => {
       calls.push(sql);
+      if (sql.startsWith("SELECT id, continuation_generation")) return { rows: [{id:"fixture",continuation_generation:0}] };
       if (sql.startsWith("SELECT id, submission FROM cases WHERE")) return { rows: fresh ? [{ id: "fixture", submission: { kind: "text", text: "fixture" } }] : [] };
       const chosen = /^UPDATE cases SET pipeline_version = (\d)/.exec(sql);
       if (chosen) { selected = Number(chosen[1]); return { rows: [] }; }

@@ -6,9 +6,7 @@ import { CHECK_TYPES, type Submission } from "@/domain/court.ts";
 import { auth0 } from "@/lib/auth0.ts";
 import { BETA_MESSAGE, canIdentifyClaims, canRequestCase, isAdmin } from "@/lib/case-access.ts";
 import { startCourtSession } from "@/lib/case-workflow.ts";
-import { deleteCaseBlobs } from "@/evidence/blob.ts";
-import { withSandboxCleanup } from "@/instruction/preparation.ts";
-import { createNewCase, finishCase, requeueCase } from "@/store.ts";
+import { createNewCase, finishCase } from "@/store.ts";
 
 const IMAGE_TYPES = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" } as const;
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
@@ -83,17 +81,10 @@ export async function requestFactCheck(_prev: RequestState, formData: FormData):
   redirect("/c/" + id);
 }
 
-export async function retryCase(id: string): Promise<void> {
+export async function retryCase(_id: string): Promise<{ error: string }> {
   const session = await auth0.getSession();
   if (!isAdmin(session?.user)) throw new Error("No autorizado para reintentar el caso.");
 
-  if (await requeueCase(id, withSandboxCleanup(deleteCaseBlobs))) {
-    try {
-      await startCourtSession(id, true);
-    } catch (err) {
-      console.error("could not start court session:", err);
-      await finishCase(id, "failed", "No se pudo iniciar la sesión.");
-    }
-  }
-  redirect("/c/" + id);
+  // Direct Server Action POSTs must fail closed too. No reset/rerun fallback.
+  return { error: "Reintentar está bloqueado: la continuación segura está desactivada. El expediente no se modificó. No se puede estimar el costo pendiente ni qué resultados podrán reutilizarse." };
 }

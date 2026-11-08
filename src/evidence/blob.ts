@@ -1,6 +1,8 @@
 import { normalizeEvidenceBytes, sha256, type EvidenceFiles } from "./validate.ts";
 import { withCaseWriteLock } from "../store.ts";
 import { normalizeArtifactBytes, type ArtifactStore } from "./artifacts.ts";
+import { GenerationArtifactBlockedError, type StagedGenerationArtifact } from "./generation-artifacts.ts";
+import type { ContinuationWriter } from "../domain/continuation.ts";
 import { copyObject, deleteObjects, getObject, headObject, listAllObjects, listObjects, publicUrl, putObject, r2Config, R2Error, type R2Object } from "./r2.ts";
 
 const ROOT = (caseId: string) => `cases/${encodeURIComponent(caseId)}/evidence/`;
@@ -23,6 +25,12 @@ async function readObject(object: { key: string; size: number }): Promise<Uint8A
 
 export function blobConfigured(): boolean {
   return Boolean(r2Config());
+}
+
+// Conditional PUT exists, but bucket retention/other writers and lifecycle rules
+// are unproved. Fail before any R2/DB call; never substitute key naming for that.
+export async function stageCaseGenerationArtifact(_caseId: string, _writer: ContinuationWriter, _path: string, _content: Uint8Array | string, _expectedHash: string): Promise<StagedGenerationArtifact> {
+  throw new GenerationArtifactBlockedError("generation_artifact_retention_unproved");
 }
 
 // Every case run with storage configured writes under its folder, at least its base and ZIP.

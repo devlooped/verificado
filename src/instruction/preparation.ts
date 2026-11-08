@@ -6,11 +6,13 @@ import type { ModelMessage } from "ai";
 import { FatalError } from "workflow";
 import type { PhaseSession } from "../court/phase-session.ts";
 import { instructionSandboxLaunch } from "../evidence/broker.ts";
-import { caseSandboxNames, findCaseAlias, getCase, saveSandboxBinding } from "../store.ts";
+import { caseSandboxNames, saveSandboxBinding } from "../store.ts";
+import { assertSandboxCleanupSafe, SandboxCleanupBlockedError } from "../lib/sandbox-cleanup.ts";
 import { SourceToolSchemas, sourceToolsFor } from "./tools.ts";
 import { ComputeSchema } from "../../sandbox/harness/compute.ts";
 import { instructionBridgeConfig } from "./config.ts";
 import { nativeResearchTools, type ProviderToolDefinition } from "./native-research.ts";
+import type { ContinuationWriter } from "../domain/continuation.ts";
 
 export function preparationDefinitions(phase: PhaseSession["state"]["phase"]) {
   return [
@@ -36,9 +38,10 @@ function nativeDefinitions(session: PhaseSession): ProviderToolDefinition[] | un
 }
 
 // A persistent VM snapshots its filesystem on every stop so the next turn of
-// the phase can resume it. Only the latest snapshot is ever resumed: keep that
-// one, briefly, and delete the VMs with their snapshots once the case ends.
-export const PREPARATION_SNAPSHOTS = { snapshotExpiration: 24 * 60 * 60_000, keepLastSnapshots: { count: 1, deleteEvicted: true } };
+// the phase can resume it. Older snapshots may still be referenced by a failed
+// unit or a future continuation: neither expiration nor eviction releases them.
+// This policy applies to future snapshots, not already-expiring historical ones.
+export const PREPARATION_SNAPSHOTS = { snapshotExpiration: 0, keepLastSnapshots: { count: 1, expiration: 0, deleteEvicted: false } };
 
 // A preparation call runs detached in the VM. One workflow step waits for it at
 // most this long, then a later step waits again: no step holds a function for
@@ -53,7 +56,7 @@ export const PREPARATION_SYNTHESIS_MS = 120_000;
 // the turn goes straight to synthesis.
 const PREPARATION_TOOL_STEP_MS = 60_000;
 
-type PreparationDependencies = { sandbox: typeof Sandbox; bind: typeof saveSandboxBinding };
+type PreparationDependencies = { sandbox: typeof Sandbox; bind: typeof saveSandboxBinding; writer?: ContinuationWriter };
 type OpenedSandbox = { sandbox?: Sandbox };
 
 async function openSandbox(session: PhaseSession, deps: PreparationDependencies, opened: OpenedSandbox): Promise<Sandbox> {
@@ -62,8 +65,11 @@ async function openSandbox(session: PhaseSession, deps: PreparationDependencies,
   const launch = instructionSandboxLaunch(session.caseId, origin);
   const resuming = Boolean(session.state.sandboxId);
   const sandbox = session.state.sandboxId
-    ? await deps.sandbox.get({ name: session.state.sandboxId, resume: true })
+    ? await deps.sandbox.get({ name: session.state.sandboxId, resume: false, signal: AbortSignal.timeout(10_000) })
     : await deps.sandbox.create({ source: { type: "snapshot", snapshotId }, timeout: 300_000, persistent: true, ...PREPARATION_SNAPSHOTS, networkPolicy: launch.networkPolicy, env: launch.env, tags: { case: session.caseId.slice(0, 32), phase: session.state.phase, seat: session.state.seat } });
+  // update() is control-plane only in the installed SDK. Do this before any
+  // method that can auto-resume the VM; a failed retention update starts no call.
+  if (resuming) await sandbox.update(PREPARATION_SNAPSHOTS, { signal: AbortSignal.timeout(10_000) });
   opened.sandbox = sandbox;
   if (!session.state.sandboxId) { session.state.sandboxId = sandbox.name; await session.save(); }
   // Reuse the installed runtime/dependencies in the existing evidence snapshot,
@@ -80,12 +86,14 @@ async function openSandbox(session: PhaseSession, deps: PreparationDependencies,
 // The VM keeps running between the calls of one turn. Stop it when the turn
 // ends, even from a step that did not open it.
 async function stopSandbox(session: PhaseSession, deps: PreparationDependencies, opened: OpenedSandbox): Promise<void> {
-  if (opened.sandbox) { await opened.sandbox.stop({ signal: AbortSignal.timeout(10_000) }); return; }
-  if (!session.state.sandboxId) return;
+  if (!opened.sandbox && !session.state.sandboxId) return;
   try {
-    const sandbox = await deps.sandbox.get({ name: session.state.sandboxId, signal: AbortSignal.timeout(10_000) });
-    if (sandbox.status === "running") await sandbox.stop({ signal: AbortSignal.timeout(10_000) });
-  } catch (error) { console.warn("Could not stop preparation sandbox:", error); }
+    const sandbox = opened.sandbox ?? await deps.sandbox.get({ name: session.state.sandboxId!, resume: false, signal: AbortSignal.timeout(10_000) });
+    // A stop can create/evict snapshots. If the policy cannot be saved (including
+    // quota/API errors), do not explicitly stop under the old destructive policy.
+    await sandbox.update(PREPARATION_SNAPSHOTS, { signal: AbortSignal.timeout(10_000) });
+    if (opened.sandbox || sandbox.status === "running") await sandbox.stop({ signal: AbortSignal.timeout(10_000) });
+  } catch { throw new FatalError("Preparation sandbox retention/stop uncertain; explicit recovery required"); }
 }
 
 function exhausted(session: PhaseSession, turn: NonNullable<PhaseSession["state"]["activeTurn"]>): FatalError {
@@ -98,6 +106,9 @@ function exhausted(session: PhaseSession, turn: NonNullable<PhaseSession["state"
 // once preparation is complete, undefined while it is under way. Every unit is
 // checkpointed, so each runs in a workflow step of its own.
 export async function advancePreparation(session: PhaseSession, deps: PreparationDependencies = { sandbox: Sandbox, bind: saveSandboxBinding }, opened: OpenedSandbox = {}, waitMs = PREPARATION_WAIT_MS): Promise<string | undefined> {
+  // A lost launch/get/wait may already have executed. Do not enter legacy
+  // restart or its cleanup/save catch for an explicitly generational request.
+  if (deps.writer) throw new FatalError("Generational preparation blocked: command launch/retry and result reconciliation are not verified");
   const turn = session.state.activeTurn!;
   const complete = async () => {
     await session.finish();
@@ -187,7 +198,8 @@ export async function advancePreparation(session: PhaseSession, deps: Preparatio
     // Dropping the active-turn checkpoint suspends grants before the VM stops.
     // The persistent VM may resume next turn, but its grant cannot.
     if (session.state.activeTurn) { delete session.state.activeTurn; await session.save(); }
-    await stopSandbox(session, deps, opened);
+    try { await stopSandbox(session, deps, opened); }
+    catch (stopError) { console.warn("Could not safely stop preparation sandbox:", stopError); }
     throw error;
   }
 
@@ -220,72 +232,35 @@ export async function prepareInSandbox(session: PhaseSession, deps: PreparationD
 
 type CleanupDependencies = { sandbox: Pick<typeof Sandbox, "get" | "list">; names: (caseId: string) => Promise<string[]> };
 
-// A sandbox already deleted, by a cleanup before this one, is not a failure.
-const notFound = (error: unknown) => (error as { response?: { status?: unknown } } | null)?.response?.status === 404;
+export { SandboxCleanupBlockedError } from "../lib/sandbox-cleanup.ts";
 
-async function deleteSandbox(sandbox: CleanupDependencies["sandbox"], name: string): Promise<void> {
-  try {
-    const found = await sandbox.get({ name, signal: AbortSignal.timeout(10_000) });
-    await found.delete({ deleteOrphanSnapshots: true, signal: AbortSignal.timeout(10_000) });
-  } catch (error) { if (!notFound(error)) throw error; }
+// No release protocol currently proves the complete reference set AND writer
+// inactivity. Terminal status, absent bindings/tags, cancellation, leases and
+// new fencing cannot authorize remote deletion, even under a case-row lock.
+// Keep the signature for legacy workflow replay and cleanup callbacks. Do not
+// query the store here: administrative cleanup may already hold its row lock.
+export async function deleteCaseSandboxes(_caseId: string, _deps: CleanupDependencies = { sandbox: Sandbox, names: caseSandboxNames }): Promise<void> {
+  assertSandboxCleanupSafe();
 }
 
-// Sandboxes carry the (at most 32 characters of the) case ID as a tag, so they
-// are found after a rerun dropped their bindings. A longer ID is only a prefix,
-// which could name another case: those rely on their bindings.
-async function taggedSandboxes(caseId: string, sandbox: CleanupDependencies["sandbox"]): Promise<string[]> {
-  if (caseId.length > 32) return [];
-  const listed = await (await sandbox.list({ tags: { case: caseId }, signal: AbortSignal.timeout(10_000) })).toArray();
-  return listed.filter((item) => item.tags?.case === caseId).map((item) => item.name);
-}
-
-// Delete every sandbox of a finished or reset case, bound or tagged, with the
-// snapshots only it uses. The configured harness snapshot is shared, so it is
-// never deleted.
-export async function deleteCaseSandboxes(caseId: string, deps: CleanupDependencies = { sandbox: Sandbox, names: caseSandboxNames }): Promise<void> {
-  const found = await Promise.allSettled([deps.names(caseId), taggedSandboxes(caseId, deps.sandbox)]);
-  const names = new Set(found.flatMap((result) => result.status === "fulfilled" ? result.value : []));
-  const results = await Promise.allSettled([...names].map((name) => deleteSandbox(deps.sandbox, name)));
-  const failed = [...found, ...results].filter((result) => result.status === "rejected");
-  if (failed.length) throw new AggregateError(failed.map((result) => result.reason), `Could not delete the sandboxes of case ${caseId} (${failed.length} failure(s))`);
-}
-
-// A rerun or deletion drops the case's bindings and files. Its sandboxes go
-// too, found by tag; their cleanup never blocks the reset, and the periodic
-// sweep deletes what remains once the case ends again.
+// Validate the entire operation before ANY removal, including aliases. A
+// no-op injected remover is not evidence of safe release. Never swallow a
+// cleanup error here: administrative transactions must retain their references.
 export function withSandboxCleanup(deleteBlobs: (ids: string[]) => Promise<void>, remove: (caseId: string) => Promise<void> = deleteCaseSandboxes) {
   return async (ids: string[]): Promise<void> => {
+    if (!ids.length) return;
+    assertSandboxCleanupSafe();
+    for (const id of ids) await remove(id);
     await deleteBlobs(ids);
-    for (const id of ids) {
-      try { await remove(id); }
-      catch (error) { console.warn("Could not delete case sandboxes:", error); }
-    }
   };
 }
 
 type SweepDependencies = { sandbox: Pick<typeof Sandbox, "get" | "list">; caseStatus: (caseId: string) => Promise<string | undefined> };
 
-async function liveCaseStatus(caseId: string): Promise<string | undefined> {
-  const stored = await getCase(caseId);
-  if (stored) return stored.status;
-  const renamed = await findCaseAlias(caseId);
-  return renamed ? (await getCase(renamed))?.status : undefined;
-}
-
-// Delete the stopped preparation sandboxes of cases that ended, or no longer
-// exist, which the case's own cleanup missed. Snapshot builds, smoke runs and
-// sandboxes of a case in progress are kept. Returns the names it deleted.
-export async function sweepCaseSandboxes(deps: SweepDependencies = { sandbox: Sandbox, caseStatus: liveCaseStatus }): Promise<string[]> {
-  const listed = await (await deps.sandbox.list({ signal: AbortSignal.timeout(10_000) })).toArray();
-  const resting = listed.filter((item) => item.tags?.case && item.tags.phase && ["stopped", "failed", "aborted"].includes(item.status));
-  const statuses = new Map<string, string | undefined>();
-  for (const caseId of new Set(resting.map((item) => item.tags!.case!))) statuses.set(caseId, await deps.caseStatus(caseId));
-  const ended = resting.filter((item) => {
-    const caseId = item.tags!.case!, status = statuses.get(caseId);
-    return status === "resolved" || status === "failed" || (status === undefined && caseId.length < 32);
-  });
-  const results = await Promise.allSettled(ended.map((item) => deleteSandbox(deps.sandbox, item.name)));
-  const failed = results.filter((result) => result.status === "rejected");
-  if (failed.length) console.warn(`Could not delete ${failed.length} ended case sandbox(es):`, failed.map((result) => result.reason));
-  return ended.filter((_, index) => results[index]!.status === "fulfilled").map((item) => item.name);
+// The same missing proof applies to resolved, failed, deleted/renamed and
+// truncated-tag cases. No status cache/TOCTOU or provider enumeration is needed
+// for this conservative block. Return only actually deleted names: always none.
+export async function sweepCaseSandboxes(_deps?: SweepDependencies): Promise<string[]> {
+  console.warn(new SandboxCleanupBlockedError().message);
+  return [];
 }

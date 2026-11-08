@@ -1,9 +1,52 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Pool } from "pg";
+import { Sandbox } from "@vercel/sandbox";
+import { context, trace } from "@opentelemetry/api";
+import { caseArtifactStore } from "../evidence/blob.ts";
 import { courtSession, linkEvidenceRun } from "./court-session.ts";
 import type { TurnOutcome } from "../court/turns.ts";
 import { COUNSEL_MODELS, MOCK_MODEL_ID } from "../court/models.ts";
+
+test("shared failure cleanup retains all sandboxes without masking the primary failure or starting external calls", async t => {
+  const keys = ["DATABASE_URL", "COURT_AI_MODE", "COURT_PIPELINE_VERSION"] as const;
+  const previous = keys.map(key => process.env[key]);
+  t.after(() => { keys.forEach((key, index) => { if (previous[index] === undefined) delete process.env[key]; else process.env[key] = previous[index]; }); });
+  process.env.DATABASE_URL = "postgres://example.invalid/test";
+  process.env.COURT_AI_MODE = "live";
+  delete process.env.COURT_PIPELINE_VERSION;
+  const row = { id: "shared-missing-image", status: "queued", created_at: "2026-11-07T00:00:00Z", continuation_generation: 0, pipeline_version: 2, submission: { kind: "image", mimeType: "image/png" }, models: null };
+  let external = 0, revocations = 0;
+  const primary = new Error("fixture primary collection failure");
+  t.mock.method(caseArtifactStore, "write", async () => { throw primary; });
+  t.mock.method(globalThis, "fetch", async () => { external++; throw new Error("forbidden network"); });
+  t.mock.method(Sandbox, "get", (async () => { external++; throw new Error("forbidden sandbox"); }) as typeof Sandbox.get);
+  t.mock.method(Sandbox, "list", (async () => { external++; throw new Error("forbidden list"); }) as typeof Sandbox.list);
+  t.mock.method(Pool.prototype, "query", (async () => ({ rows: [] })) as unknown as typeof Pool.prototype.query);
+  t.mock.method(Pool.prototype, "connect", (async () => ({ query: async (query: string) => {
+    if (query.startsWith("SELECT id, continuation_generation")) return { rows: [row] };
+    if (query.startsWith("SELECT id, submission FROM cases WHERE")) return { rows: [] };
+    if (query.startsWith("UPDATE cases SET status = 'in_session'")) { row.status = "in_session"; return { rows: [row] }; }
+    if (query.startsWith("UPDATE case_sandbox_bindings")) revocations++;
+    if (query.startsWith("WITH updated AS (UPDATE cases SET status = 'failed'")) row.status = "failed";
+    return { rows: [] };
+  }, release: () => {} })) as unknown as typeof Pool.prototype.connect);
+  await assert.rejects(courtSession(row.id), error => error === primary);
+  assert.equal(row.status, "failed");
+  assert.equal(revocations, 1, "revoking grants preserves sandbox identities; it does not authorize deletion");
+  assert.equal(external, 0);
+
+  // A cleanup step wrapper itself can reject before running its body. Keep
+  // that secondary failure from replacing the original workflow exception.
+  const marker = trace.getTracer("fixture").startSpan("fixture.cleanup");
+  t.mock.method(trace, "getTracer", () => ({ startSpan: (name: string) => name === "case.dispose_sandboxes" ? marker : undefined }) as unknown as ReturnType<typeof trace.getTracer>);
+  t.mock.method(context, "with", () => { throw new Error("fixture cleanup step wrapper failure"); });
+  row.status = "queued";
+  await assert.rejects(courtSession(row.id), error => error === primary);
+  assert.equal(row.status, "failed");
+  assert.equal(revocations, 2);
+  assert.equal(external, 0);
+});
 
 test("links only statements to the promoted evidence run for their own attempt", () => {
   const outcome: TurnOutcome = { done: false, events: [
@@ -48,7 +91,9 @@ test("a collection failure after opening marks the case as failed and rethrows",
   const closingUpdates: unknown[][] = [];
   const client = {
     query: async (sql: string, values?: unknown[]) => {
-      if (sql === "BEGIN" || sql === "COMMIT" || sql === "DELETE FROM events WHERE case_id = $1") return { rows: [] };
+      if (sql.startsWith("SELECT id, continuation_generation")) return {rows:[row]};
+      if (sql.startsWith("UPDATE cases SET models") || sql.startsWith("WITH updated AS")) return Pool.prototype.query(sql,values);
+      if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK" || sql === "DELETE FROM events WHERE case_id = $1") return { rows: [] };
       if (sql.startsWith("SELECT id, submission FROM cases WHERE")) {
         assert.deepEqual(values, [caseId]);
         return { rows: [] };
@@ -106,9 +151,11 @@ test("a bridge preflight failure before opening marks the case failed and create
   process.env.COURT_PIPELINE_VERSION = "2";
   const queries: string[] = [];
   const client = {
-    query: async (sql: string) => {
+    query: async (sql: string, values?: unknown[]) => {
       queries.push(sql);
-      if (sql === "BEGIN" || sql === "ROLLBACK") return { rows: [] };
+      if (sql === "BEGIN" || sql === "ROLLBACK" || sql === "COMMIT") return { rows: [] };
+      if (sql.startsWith("SELECT id, continuation_generation")) return {rows:[{id:"fixture",continuation_generation:0}]};
+      if (sql.startsWith("WITH updated AS")) return Pool.prototype.query(sql,values);
       if (sql.startsWith("SELECT id, submission FROM cases WHERE")) return { rows: [{ id: "case-preflight", submission: { kind: "text", text: "fixture", check: "expert" } }] };
       throw new Error("Unexpected query");
     },

@@ -192,7 +192,11 @@ export function liveSourceDependencies(translator: CourtModel, caseId?: string):
 }
 
 export class SourceService {
-  constructor(readonly caseId: string, readonly language: string, private readonly deps: SourceDependencies) {}
+  constructor(readonly caseId: string, readonly language: string, private readonly deps: SourceDependencies) {
+    // The legacy stage callbacks/paths are not a generational effects protocol.
+    // Reject explicit new scope before even reading or writing artifact storage.
+    if (deps.operations.writer) throw new Error("Generational source execution blocked: effect dispatch and artifact retention are not verified");
+  }
 
   async hostStage<T>(key: string, stage: string, run: () => Promise<T>): Promise<T> {
     return (await this.stage(key, stage, run)).value;
@@ -236,10 +240,14 @@ export class SourceService {
     }
   }
 
-  private async file(path: string, expectedHash: string): Promise<string> {
-    const bytes = (await this.deps.artifacts.read(this.caseId)).get(path);
+  private fileFrom(files: ReadonlyMap<string, Uint8Array>, path: string, expectedHash: string): string {
+    const bytes = files.get(path);
     if (!bytes || sha256(bytes) !== expectedHash) throw new Error("Required source artifact missing or changed");
     return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  }
+
+  private async file(path: string, expectedHash: string): Promise<string> {
+    return this.fileFrom(await this.deps.artifacts.read(this.caseId), path, expectedHash);
   }
 
   private async writeDocument(source: ExtractedSource, path: string): Promise<StoredDocument> {
@@ -248,9 +256,13 @@ export class SourceService {
     return rendered.document;
   }
 
-  async blocks(document: StoredDocument): Promise<SourceBlock[]> {
-    const markdown = await this.file(document.path, document.hash);
+  private blocksFrom(files: ReadonlyMap<string, Uint8Array>, document: StoredDocument): SourceBlock[] {
+    const markdown = this.fileFrom(files, document.path, document.hash);
     return document.blocks.map(({ id, page, offset, length }) => ({ id, page, text: markdown.slice(offset, offset + length) }));
+  }
+
+  async blocks(document: StoredDocument): Promise<SourceBlock[]> {
+    return this.blocksFrom(await this.deps.artifacts.read(this.caseId), document);
   }
 
   // Used for snippets, submission descriptions, court prose, and source titles.
@@ -286,13 +298,28 @@ export class SourceService {
     return { title: translatedTitle, body: output.join("\n\n") };
   }
 
-  async source(sourceId: string): Promise<CanonicalSource> {
-    const file = (await this.deps.artifacts.read(this.caseId)).get(`${sourceRoot(sourceId)}/source.json`);
+  private sourceFrom(files: ReadonlyMap<string, Uint8Array>, sourceId: string): CanonicalSource {
+    const file = files.get(`${sourceRoot(sourceId)}/source.json`);
     if (!file) throw new Error("Canonical source unavailable");
     const source = JSON.parse(new TextDecoder().decode(file)) as CanonicalSource;
     if (source.sourceId !== sourceId || source.schemaVersion !== 3) throw new Error("Canonical source mismatch");
-    await this.file(source.document.path, source.document.hash);
+    this.fileFrom(files, source.document.path, source.document.hash);
     return source;
+  }
+
+  async source(sourceId: string): Promise<CanonicalSource> {
+    return this.sourceFrom(await this.deps.artifacts.read(this.caseId), sourceId);
+  }
+
+  // Collection is read-only: load the verified artifact tree once for all
+  // proposed sources, rather than downloading the whole tree per source/block.
+  async collectionSources(sourceIds: readonly string[]): Promise<Map<string, { source: CanonicalSource; blocks: SourceBlock[] }>> {
+    if (!sourceIds.length) return new Map();
+    const files = await this.deps.artifacts.read(this.caseId);
+    return new Map(sourceIds.map((sourceId) => {
+      const source = this.sourceFrom(files, sourceId);
+      return [sourceId, { source, blocks: this.blocksFrom(files, source.document) }];
+    }));
   }
 
   // Host-only, once evidence closes: translate a whole admitted source into the

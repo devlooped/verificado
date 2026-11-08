@@ -28,6 +28,24 @@ test("sandbox authorization rejects expired/revoked/unknown phase identities and
   for (const changed of [{ phase: "instruction" as const }, { phase: "settling" as const }, { status: "resolved" }, { status: "failed" }, { pipelineVersion: 1 }, { phaseSessionId: "other" }, { activeTurnId: "other" }]) assert.throws(() => authorizeSandboxBinding(binding, { ...context, ...changed }));
 });
 
+test("sandbox authorization requires exact generation/run and cannot adopt legacy grants", () => {
+  const writer = {generation:1,runId:"fixture-run"};
+  assert.doesNotThrow(()=>authorizeSandboxBinding({...binding,writer},{...context,...{generation:1,runId:writer.runId}}));
+  for (const changed of [{generation:0,runId:writer.runId},{generation:2,runId:writer.runId},{generation:1,runId:"other"}]) assert.throws(()=>authorizeSandboxBinding({...binding,writer},{...context,...changed}),/sandbox_forbidden/);
+  assert.throws(()=>authorizeSandboxBinding(binding,{...context,generation:1,runId:writer.runId}),/sandbox_forbidden/);
+});
+
+test("generation-aware broker effects stay disabled before parsing or calling a provider", async (t) => {
+  t.mock.method(console,"warn",()=>{});
+  let effects=0;
+  const proxy=createTurnProxy({origin:"https://fixture.example",teamId:"fixture-team",projectId:"fixture-project"},{
+    consume:async()=>({caseId:"fixture",binding:{...binding,writer:{generation:1,runId:"fixture-run"}}}),
+    generate:async()=>{effects++;throw new Error("must not call provider");},
+  } as unknown as Parameters<typeof createTurnProxy>[1]);
+  const response=await proxy(new Request("https://ai-gateway.vercel.sh/v4/ai/language-model",{method:"POST",body:"not-json"}),{teamId:"fixture-team",projectId:"fixture-project",sandboxName:"fixture-sandbox"} as Parameters<typeof proxy>[1]);
+  assert.equal(response.status,403);assert.equal(effects,0);
+});
+
 test("committed phases close all research at settlement and retain criticism research only before it", () => {
   assert.equal(committedPhase([]), "intake");
   assert.equal(committedPhase([{ type: "instruction_opened" }]), "instruction");

@@ -13,6 +13,7 @@ import { sourceDownloader } from "./research.ts";
 import { liveSourceDependencies, SourceService } from "./sources.ts";
 import { executeSourceTool } from "./tools.ts";
 import { instructionBridgeConfig } from "./config.ts";
+import { requireContinuationEnabled } from "../domain/continuation.ts";
 
 export function caseSourceService(record: CaseRecord): SourceService {
   const translator = record.models?.translator;
@@ -104,6 +105,9 @@ export function createTurnProxy(config: { origin: string; teamId: string; projec
       // Persistent SDK sandboxes resume by name; their VM ID may change on
       // resume. Both values are OIDC-verified, but the binding stores the name.
       const { caseId, binding } = await deps.consume(meta.sandboxName, toolPath?.[1]);
+      // Generation-aware broker effects need generation-isolated artifacts and
+      // retention (step 4). Do not authorize them with legacy paths meanwhile.
+      if(binding.writer) requireContinuationEnabled();
       const body = await boundedJson(request);
       if (isGeneration) return await generation(request, body, caseId, binding, deps);
       const call = ToolRequest.parse(body);

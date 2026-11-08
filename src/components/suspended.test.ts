@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { parseHTML } from "linkedom";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { CaseRecord } from "../domain/court.ts";
@@ -13,11 +14,11 @@ const failedCase: CaseRecord = {
   error: "Se interrumpió la sesión.",
 };
 
-test("only admins see failure details and retry controls", () => {
+test("only admins see failure details and the blocked retry control", () => {
   const allowed = renderToStaticMarkup(createElement(Suspended, { c: failedCase, user: { sub: "admin-user", roles: ["Admin"] } }));
-  assert.match(allowed, /<form/);
+  assert.doesNotMatch(allowed, /<form/);
   assert.match(allowed, /Reintentar/);
-  assert.match(allowed, /Podés volver a intentarlo/);
+  assert.doesNotMatch(allowed, /Podés volver a intentarlo/);
   assert.match(allowed, /Detalle: Se interrumpió la sesión/);
 
   for (const user of [
@@ -40,4 +41,27 @@ test("only admins see failure details and retry controls", () => {
     assert.ok(html.includes('href="/"'), "every visitor has a way back");
   }
   assert.doesNotMatch(allowed, /mailto:/);
+});
+
+test("admin retry is disabled without a form, with an accessible zero-effects explanation", () => {
+  const { document } = parseHTML(renderToStaticMarkup(createElement(Suspended, { c: failedCase, user: { sub: "admin-user", roles: ["Admin"] } })));
+  const button = document.querySelector("button")!;
+  assert.equal(button.textContent, "Reintentar");
+  assert.equal(button.getAttribute("type"), "button");
+  assert.ok(button.hasAttribute("disabled"));
+  assert.equal(document.querySelector("form"), null);
+  assert.equal(button.hasAttribute("formaction"), false);
+  const description = button.getAttribute("aria-describedby")!.split(" ").map((id) => document.getElementById(id)!.textContent).join(" ");
+  assert.match(description, /Reintentar está bloqueado: la continuación segura está desactivada/);
+  assert.match(description, /No se reinicia ni se borra el expediente, no se limpian sus sandboxes ni se inicia otra ejecución/);
+  assert.match(description, /No se puede estimar el costo pendiente ni qué resultados podrán reutilizarse/);
+});
+
+test("the blocked view distinguishes destructive administrative rerun without offering a fallback", () => {
+  const { document } = parseHTML(renderToStaticMarkup(createElement(Suspended, { c: { ...failedCase, error: undefined }, user: { sub: "admin-user", roles: ["Admin"] } })));
+  const explanation = document.querySelector("section")!.textContent;
+  assert.match(explanation, /«Volver a ejecutar» es una operación administrativa distinta: elimina resultados y archivos generados y empieza de cero/);
+  assert.match(explanation, /No se usa como alternativa de Reintentar/);
+  assert.equal(document.querySelectorAll("button").length, 1);
+  assert.deepEqual([...document.querySelectorAll("a")].map((a) => a.getAttribute("href")), ["/"]);
 });

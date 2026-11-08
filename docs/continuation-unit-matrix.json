@@ -1,0 +1,2066 @@
+{
+  "schemaVersion": 1,
+  "purpose": "step-1-design-only; not runtime permission or migration",
+  "date": "2026-11-07",
+  "continuationEnabled": false,
+  "boundedImplementation": {
+    "scope": "steps-2-3-local-storage-and-pure-unit-only; no public continuation",
+    "unit": "quick.content-consensus",
+    "supportedInputs": "Quick 5 text without identifyClaims: exactly session_opened, four ordered responses and four complete votes with at least three agreeing",
+    "cursor": "validated prefix hash, deterministic judgment/closed suffix at seq 10-11, nextSeq 12; checkpoint+events+phase+audit in one transaction",
+    "evidence": ["src/court/quick-continuation.test.ts", "scripts/test-local-continuation.ts"],
+    "notProved": ["analyst-result recovery", "partial seats", "tiebreak", "historical import", "provider inactivity", "workflow wiring", "artifacts and post-close effects"]
+  },
+  "profiles": [
+    {
+      "route": "expert:1",
+      "continuation": "blocked",
+      "adapter": "none-tested",
+      "newCaseSelection": "see-rollout",
+      "observedContract": "legacy: runSeat + single-use evidence sandbox + mutable evidence tree",
+      "requiredProofs": [
+        "exact-result-fixtures",
+        "input-model-prompt-tool-format-equality",
+        "complete-prefix-and-artifact-integrity",
+        "no-old-writers-or-external-commands",
+        "interruption-and-reuse",
+        "generation-fencing-and-retention"
+      ],
+      "gaps": [
+        "G01",
+        "G02",
+        "G03",
+        "G04",
+        "G05",
+        "G06",
+        "G07",
+        "G08",
+        "G09",
+        "G10"
+      ]
+    },
+    {
+      "route": "expert:2",
+      "continuation": "blocked",
+      "adapter": "none-tested",
+      "newCaseSelection": "see-rollout",
+      "observedContract": "shared: host source tools + PhaseSession + settle v2; moderator unification",
+      "requiredProofs": [
+        "exact-result-fixtures",
+        "input-model-prompt-tool-format-equality",
+        "complete-prefix-and-artifact-integrity",
+        "no-old-writers-or-external-commands",
+        "interruption-and-reuse",
+        "generation-fencing-and-retention"
+      ],
+      "gaps": [
+        "G01",
+        "G02",
+        "G03",
+        "G04",
+        "G05",
+        "G06",
+        "G07",
+        "G08",
+        "G09",
+        "G10"
+      ]
+    },
+    {
+      "route": "expert:3",
+      "continuation": "blocked",
+      "adapter": "none-tested",
+      "newCaseSelection": "not-selected-by-current-rollout",
+      "observedContract": "native: provider tools + reasoning/typed; fetchProposals sin progress; preservar secuencia replay",
+      "requiredProofs": [
+        "exact-result-fixtures",
+        "input-model-prompt-tool-format-equality",
+        "complete-prefix-and-artifact-integrity",
+        "no-old-writers-or-external-commands",
+        "interruption-and-reuse",
+        "generation-fencing-and-retention"
+      ],
+      "gaps": [
+        "G01",
+        "G02",
+        "G03",
+        "G04",
+        "G05",
+        "G06",
+        "G07",
+        "G08",
+        "G09",
+        "G10"
+      ]
+    },
+    {
+      "route": "expert:4",
+      "continuation": "blocked",
+      "adapter": "none-tested",
+      "newCaseSelection": "not-selected-by-current-rollout",
+      "observedContract": "native: source_collection_started y batch_completed sólo conteos; sin URLs",
+      "requiredProofs": [
+        "exact-result-fixtures",
+        "input-model-prompt-tool-format-equality",
+        "complete-prefix-and-artifact-integrity",
+        "no-old-writers-or-external-commands",
+        "interruption-and-reuse",
+        "generation-fencing-and-retention"
+      ],
+      "gaps": [
+        "G01",
+        "G02",
+        "G03",
+        "G04",
+        "G05",
+        "G06",
+        "G07",
+        "G08",
+        "G09",
+        "G10"
+      ]
+    },
+    {
+      "route": "expert:5",
+      "continuation": "blocked",
+      "adapter": "none-tested",
+      "newCaseSelection": "see-rollout",
+      "observedContract": "native: batch_started URLs y batch_completed url/failed; sin sourceId/error exacto",
+      "requiredProofs": [
+        "exact-result-fixtures",
+        "input-model-prompt-tool-format-equality",
+        "complete-prefix-and-artifact-integrity",
+        "no-old-writers-or-external-commands",
+        "interruption-and-reuse",
+        "generation-fencing-and-retention"
+      ],
+      "gaps": [
+        "G01",
+        "G02",
+        "G03",
+        "G04",
+        "G05",
+        "G06",
+        "G07",
+        "G08",
+        "G09",
+        "G10"
+      ]
+    },
+    {
+      "route": "quick:1",
+      "continuation": "blocked",
+      "adapter": "none-tested",
+      "newCaseSelection": "not-selected-by-current-rollout",
+      "observedContract": "QuickBench; claims opcionales; sin instrucción/sandbox; storage según pipeline persistido",
+      "requiredProofs": [
+        "exact-result-fixtures",
+        "input-model-prompt-tool-format-equality",
+        "complete-prefix-and-artifact-integrity",
+        "no-old-writers-or-external-commands",
+        "interruption-and-reuse",
+        "generation-fencing-and-retention"
+      ],
+      "gaps": [
+        "G01",
+        "G02",
+        "G03",
+        "G04",
+        "G06",
+        "G07",
+        "G09",
+        "G10"
+      ]
+    },
+    {
+      "route": "quick:2",
+      "continuation": "blocked",
+      "adapter": "none-tested",
+      "newCaseSelection": "see-rollout",
+      "observedContract": "QuickBench; claims opcionales; sin instrucción/sandbox; storage según pipeline persistido",
+      "requiredProofs": [
+        "exact-result-fixtures",
+        "input-model-prompt-tool-format-equality",
+        "complete-prefix-and-artifact-integrity",
+        "no-old-writers-or-external-commands",
+        "interruption-and-reuse",
+        "generation-fencing-and-retention"
+      ],
+      "gaps": [
+        "G01",
+        "G02",
+        "G03",
+        "G04",
+        "G06",
+        "G07",
+        "G09",
+        "G10"
+      ]
+    },
+    {
+      "route": "quick:3",
+      "continuation": "blocked",
+      "adapter": "none-tested",
+      "newCaseSelection": "not-selected-by-current-rollout",
+      "observedContract": "QuickBench; claims opcionales; sin instrucción/sandbox; storage según pipeline persistido",
+      "requiredProofs": [
+        "exact-result-fixtures",
+        "input-model-prompt-tool-format-equality",
+        "complete-prefix-and-artifact-integrity",
+        "no-old-writers-or-external-commands",
+        "interruption-and-reuse",
+        "generation-fencing-and-retention"
+      ],
+      "gaps": [
+        "G01",
+        "G02",
+        "G03",
+        "G04",
+        "G06",
+        "G07",
+        "G09",
+        "G10"
+      ]
+    },
+    {
+      "route": "quick:4",
+      "continuation": "blocked",
+      "adapter": "none-tested",
+      "newCaseSelection": "not-selected-by-current-rollout",
+      "observedContract": "QuickBench; claims opcionales; sin instrucción/sandbox; storage según pipeline persistido",
+      "requiredProofs": [
+        "exact-result-fixtures",
+        "input-model-prompt-tool-format-equality",
+        "complete-prefix-and-artifact-integrity",
+        "no-old-writers-or-external-commands",
+        "interruption-and-reuse",
+        "generation-fencing-and-retention"
+      ],
+      "gaps": [
+        "G01",
+        "G02",
+        "G03",
+        "G04",
+        "G06",
+        "G07",
+        "G09",
+        "G10"
+      ]
+    },
+    {
+      "route": "quick:5",
+      "continuation": "blocked",
+      "adapter": "none-tested",
+      "newCaseSelection": "see-rollout",
+      "observedContract": "QuickBench; claims opcionales; sin instrucción/sandbox; storage según pipeline persistido",
+      "requiredProofs": [
+        "exact-result-fixtures",
+        "input-model-prompt-tool-format-equality",
+        "complete-prefix-and-artifact-integrity",
+        "no-old-writers-or-external-commands",
+        "interruption-and-reuse",
+        "generation-fencing-and-retention"
+      ],
+      "gaps": [
+        "G01",
+        "G02",
+        "G03",
+        "G04",
+        "G06",
+        "G07",
+        "G09",
+        "G10"
+      ]
+    }
+  ],
+  "units": [
+    {
+      "id": "run.start",
+      "routes": [
+        "expert:1",
+        "expert:2",
+        "expert:3",
+        "expert:4",
+        "expert:5",
+        "quick:1",
+        "quick:2",
+        "quick:3",
+        "quick:4",
+        "quick:5"
+      ],
+      "dependsOn": [],
+      "key": "case/generation/start-token",
+      "result": "runId registrado por CAS inequívoco antes de efectos",
+      "effects": [
+        "workflow",
+        "sql"
+      ],
+      "evidence": [
+        {
+          "file": "src/lib/case-workflow.ts",
+          "symbol": "startCourtSession"
+        },
+        {
+          "file": "src/store.ts",
+          "symbol": "startCaseWorkflow"
+        }
+      ],
+      "gaps": [
+        "G01",
+        "G07"
+      ],
+      "workflowSteps": [
+        {
+          "file": "src/workflows/steps.ts",
+          "symbol": "registerContinuationCaseRun"
+        }
+      ]
+    },
+    {
+      "id": "case.open",
+      "routes": [
+        "expert:1",
+        "expert:2",
+        "expert:3",
+        "expert:4",
+        "expert:5",
+        "quick:1",
+        "quick:2",
+        "quick:3",
+        "quick:4",
+        "quick:5"
+      ],
+      "dependsOn": [
+        "run.start"
+      ],
+      "key": "case/generation/open",
+      "result": "submission, today, simulated, pipeline originales",
+      "effects": [
+        "sql",
+        "workflow-attributes"
+      ],
+      "evidence": [
+        {
+          "file": "src/workflows/steps.ts",
+          "symbol": "openCase"
+        },
+        {
+          "file": "src/store.ts",
+          "symbol": "openSession"
+        }
+      ],
+      "gaps": [
+        "G01",
+        "G02"
+      ],
+      "workflowSteps": [
+        {
+          "file": "src/workflows/steps.ts",
+          "symbol": "openCase"
+        }
+      ]
+    },
+    {
+      "id": "case.models",
+      "routes": [
+        "expert:1",
+        "expert:2",
+        "expert:3",
+        "expert:4",
+        "expert:5",
+        "quick:1",
+        "quick:2",
+        "quick:3",
+        "quick:4",
+        "quick:5"
+      ],
+      "dependsOn": [
+        "case.open"
+      ],
+      "key": "case/generation/models",
+      "result": "snapshot completo por rol, effort y opciones; no recargar configuración mutable",
+      "effects": [
+        "sql"
+      ],
+      "evidence": [
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "configuredModels"
+        }
+      ],
+      "gaps": [
+        "G01",
+        "G03"
+      ],
+      "workflowSteps": [
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "configuredModels"
+        }
+      ]
+    },
+    {
+      "id": "intake.base",
+      "routes": [
+        "expert:1",
+        "expert:2",
+        "expert:3",
+        "expert:4",
+        "expert:5"
+      ],
+      "dependsOn": [
+        "case.models"
+      ],
+      "key": "submission-hash/intake-format",
+      "result": "originales + contexto/descripción + hashes y errores exactos; pipeline 2+ también idioma y proyección",
+      "effects": [
+        "download",
+        "ocr",
+        "model",
+        "artifact",
+        "sql"
+      ],
+      "evidence": [
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "collect"
+        },
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "collectShared"
+        },
+        {
+          "file": "src/instruction/intake.ts",
+          "symbol": "collectInstruction"
+        }
+      ],
+      "gaps": [
+        "G01",
+        "G04",
+        "G06"
+      ],
+      "workflowSteps": [
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "collect"
+        },
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "collectShared"
+        }
+      ]
+    },
+    {
+      "id": "case.language",
+      "routes": [
+        "expert:1",
+        "expert:2",
+        "expert:3",
+        "expert:4",
+        "expert:5",
+        "quick:1",
+        "quick:2",
+        "quick:3",
+        "quick:4",
+        "quick:5"
+      ],
+      "dependsOn": [
+        "case.models"
+      ],
+      "key": "submission+context+language-model/policy",
+      "result": "idioma canónico persistido; guardar entrada exacta y resultado de detección",
+      "effects": [
+        "model",
+        "sql"
+      ],
+      "evidence": [
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "determineLanguage"
+        }
+      ],
+      "gaps": [
+        "G01",
+        "G03",
+        "G06"
+      ],
+      "workflowSteps": [
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "determineLanguage"
+        }
+      ]
+    },
+    {
+      "id": "legacy.prepare",
+      "routes": [
+        "expert:1"
+      ],
+      "dependsOn": [
+        "intake.base",
+        "case.language"
+      ],
+      "key": "turn-spec/seat/stage/attempt/input-hash",
+      "result": "EvidenceStepResult íntegro (runId, estado, índice, citas), archivos promovidos, transcript y hashes; partial no es listo",
+      "effects": [
+        "sandbox",
+        "model",
+        "artifact"
+      ],
+      "evidence": [
+        {
+          "file": "src/evidence/sandbox.ts",
+          "symbol": "runEvidenceStep"
+        }
+      ],
+      "gaps": [
+        "G01",
+        "G04",
+        "G06",
+        "G08"
+      ],
+      "workflowSteps": [
+        {
+          "file": "src/evidence/sandbox.ts",
+          "symbol": "runEvidenceStep"
+        }
+      ]
+    },
+    {
+      "id": "phase.preparation",
+      "routes": [
+        "expert:2",
+        "expert:3",
+        "expert:4",
+        "expert:5"
+      ],
+      "dependsOn": [
+        "intake.base",
+        "case.language"
+      ],
+      "key": "phase/seat/channel/turn-id/call-id/request-hash",
+      "result": "PhaseState y PhaseTurn con mensajes, resultados, pasos, vencimientos, commandId/resultPath; response stop no vacío; timedOut no se importa como éxito",
+      "effects": [
+        "sandbox",
+        "model",
+        "artifact",
+        "sql",
+        "broker"
+      ],
+      "evidence": [
+        {
+          "file": "src/instruction/preparation.ts",
+          "symbol": "advancePreparation"
+        },
+        {
+          "file": "src/court/phase-session.ts",
+          "symbol": "PhaseSession"
+        }
+      ],
+      "gaps": [
+        "G01",
+        "G03",
+        "G06",
+        "G08"
+      ],
+      "workflowSteps": []
+    },
+    {
+      "id": "phase.decision",
+      "routes": [
+        "expert:2",
+        "expert:3",
+        "expert:4",
+        "expert:5"
+      ],
+      "dependsOn": [
+        "phase.preparation"
+      ],
+      "key": "phase/seat/channel/turn-id/step/input-hash",
+      "result": "request+result completos, tools+output+errores, mensajes, presupuesto original; done y complete distintos",
+      "effects": [
+        "model",
+        "sql",
+        "artifact"
+      ],
+      "evidence": [
+        {
+          "file": "src/court/settled-play.ts",
+          "symbol": "advanceSharedTurn"
+        }
+      ],
+      "gaps": [
+        "G01",
+        "G03",
+        "G04",
+        "G06"
+      ],
+      "workflowSteps": [
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "advanceShared"
+        }
+      ]
+    },
+    {
+      "id": "court.closing",
+      "routes": [
+        "expert:1",
+        "expert:2",
+        "expert:3",
+        "expert:4",
+        "expert:5"
+      ],
+      "dependsOn": [
+        "court.publish"
+      ],
+      "key": "turn/closing/spec-con-ids-estables/seat/attempt/prefix-hash",
+      "result": "TurnOutcome íntegro, done=true demostrado, at originales e IDs provisionales; derivados e IDs finales se fijan en publicación ordenada",
+      "effects": [
+        "model",
+        "artifact",
+        "sql"
+      ],
+      "evidence": [
+        {
+          "file": "src/court/turns.ts",
+          "symbol": "TurnSpec"
+        },
+        {
+          "file": "src/court/procedure.ts",
+          "symbol": "holdSession"
+        }
+      ],
+      "gaps": [
+        "G02",
+        "G03",
+        "G04"
+      ],
+      "workflowSteps": []
+    },
+    {
+      "id": "court.content_tiebreak",
+      "routes": [
+        "expert:1",
+        "expert:2",
+        "expert:3",
+        "expert:4",
+        "expert:5"
+      ],
+      "dependsOn": [
+        "court.publish"
+      ],
+      "key": "turn/content_tiebreak/spec-con-ids-estables/seat/attempt/prefix-hash",
+      "result": "TurnOutcome íntegro, done=true demostrado, at originales e IDs provisionales; derivados e IDs finales se fijan en publicación ordenada",
+      "effects": [
+        "model",
+        "artifact",
+        "sql"
+      ],
+      "evidence": [
+        {
+          "file": "src/court/turns.ts",
+          "symbol": "TurnSpec"
+        },
+        {
+          "file": "src/court/procedure.ts",
+          "symbol": "holdSession"
+        }
+      ],
+      "gaps": [
+        "G02",
+        "G03",
+        "G04"
+      ],
+      "workflowSteps": []
+    },
+    {
+      "id": "court.content_vote",
+      "routes": [
+        "expert:1",
+        "expert:2",
+        "expert:3",
+        "expert:4",
+        "expert:5"
+      ],
+      "dependsOn": [
+        "court.publish"
+      ],
+      "key": "turn/content_vote/spec-con-ids-estables/seat/attempt/prefix-hash",
+      "result": "TurnOutcome íntegro, done=true demostrado, at originales e IDs provisionales; derivados e IDs finales se fijan en publicación ordenada",
+      "effects": [
+        "model",
+        "artifact",
+        "sql"
+      ],
+      "evidence": [
+        {
+          "file": "src/court/turns.ts",
+          "symbol": "TurnSpec"
+        },
+        {
+          "file": "src/court/procedure.ts",
+          "symbol": "holdSession"
+        }
+      ],
+      "gaps": [
+        "G02",
+        "G03",
+        "G04"
+      ],
+      "workflowSteps": []
+    },
+    {
+      "id": "court.instruction",
+      "routes": [
+        "expert:1",
+        "expert:2",
+        "expert:3",
+        "expert:4",
+        "expert:5"
+      ],
+      "dependsOn": [
+        "court.publish"
+      ],
+      "key": "turn/instruction/spec-con-ids-estables/seat/attempt/prefix-hash",
+      "result": "TurnOutcome íntegro, done=true demostrado, at originales e IDs provisionales; derivados e IDs finales se fijan en publicación ordenada",
+      "effects": [
+        "model",
+        "artifact",
+        "sql"
+      ],
+      "evidence": [
+        {
+          "file": "src/court/turns.ts",
+          "symbol": "TurnSpec"
+        },
+        {
+          "file": "src/court/procedure.ts",
+          "symbol": "holdSession"
+        }
+      ],
+      "gaps": [
+        "G02",
+        "G03",
+        "G04"
+      ],
+      "workflowSteps": []
+    },
+    {
+      "id": "court.intake",
+      "routes": [
+        "expert:1",
+        "expert:2",
+        "expert:3",
+        "expert:4",
+        "expert:5"
+      ],
+      "dependsOn": [
+        "intake.base",
+        "case.language"
+      ],
+      "key": "turn/intake/spec-con-ids-estables/seat/attempt/prefix-hash",
+      "result": "TurnOutcome íntegro, done=true demostrado, at originales e IDs provisionales; derivados e IDs finales se fijan en publicación ordenada",
+      "effects": [
+        "model",
+        "artifact",
+        "sql"
+      ],
+      "evidence": [
+        {
+          "file": "src/court/turns.ts",
+          "symbol": "TurnSpec"
+        },
+        {
+          "file": "src/court/procedure.ts",
+          "symbol": "holdSession"
+        }
+      ],
+      "gaps": [
+        "G02",
+        "G03",
+        "G04"
+      ],
+      "workflowSteps": []
+    },
+    {
+      "id": "court.objection",
+      "routes": [
+        "expert:1",
+        "expert:2",
+        "expert:3",
+        "expert:4",
+        "expert:5"
+      ],
+      "dependsOn": [
+        "court.publish"
+      ],
+      "key": "turn/objection/spec-con-ids-estables/seat/attempt/prefix-hash",
+      "result": "TurnOutcome íntegro, done=true demostrado, at originales e IDs provisionales; derivados e IDs finales se fijan en publicación ordenada",
+      "effects": [
+        "model",
+        "artifact",
+        "sql"
+      ],
+      "evidence": [
+        {
+          "file": "src/court/turns.ts",
+          "symbol": "TurnSpec"
+        },
+        {
+          "file": "src/court/procedure.ts",
+          "symbol": "holdSession"
+        }
+      ],
+      "gaps": [
+        "G02",
+        "G03",
+        "G04"
+      ],
+      "workflowSteps": []
+    },
+    {
+      "id": "court.reply",
+      "routes": [
+        "expert:1",
+        "expert:2",
+        "expert:3",
+        "expert:4",
+        "expert:5"
+      ],
+      "dependsOn": [
+        "court.publish"
+      ],
+      "key": "turn/reply/spec-con-ids-estables/seat/attempt/prefix-hash",
+      "result": "TurnOutcome íntegro, done=true demostrado, at originales e IDs provisionales; derivados e IDs finales se fijan en publicación ordenada",
+      "effects": [
+        "model",
+        "artifact",
+        "sql"
+      ],
+      "evidence": [
+        {
+          "file": "src/court/turns.ts",
+          "symbol": "TurnSpec"
+        },
+        {
+          "file": "src/court/procedure.ts",
+          "symbol": "holdSession"
+        }
+      ],
+      "gaps": [
+        "G02",
+        "G03",
+        "G04"
+      ],
+      "workflowSteps": []
+    },
+    {
+      "id": "court.ruling",
+      "routes": [
+        "expert:1",
+        "expert:2",
+        "expert:3",
+        "expert:4",
+        "expert:5"
+      ],
+      "dependsOn": [
+        "court.publish"
+      ],
+      "key": "turn/ruling/spec-con-ids-estables/seat/attempt/prefix-hash",
+      "result": "TurnOutcome íntegro, done=true demostrado, at originales e IDs provisionales; derivados e IDs finales se fijan en publicación ordenada",
+      "effects": [
+        "model",
+        "artifact",
+        "sql"
+      ],
+      "evidence": [
+        {
+          "file": "src/court/turns.ts",
+          "symbol": "TurnSpec"
+        },
+        {
+          "file": "src/court/procedure.ts",
+          "symbol": "holdSession"
+        }
+      ],
+      "gaps": [
+        "G02",
+        "G03",
+        "G04"
+      ],
+      "workflowSteps": []
+    },
+    {
+      "id": "court.source_review",
+      "routes": [
+        "expert:1",
+        "expert:2",
+        "expert:3",
+        "expert:4",
+        "expert:5"
+      ],
+      "dependsOn": [
+        "court.publish"
+      ],
+      "key": "turn/source_review/spec-con-ids-estables/seat/attempt/prefix-hash",
+      "result": "TurnOutcome íntegro, done=true demostrado, at originales e IDs provisionales; derivados e IDs finales se fijan en publicación ordenada",
+      "effects": [
+        "model",
+        "artifact",
+        "sql"
+      ],
+      "evidence": [
+        {
+          "file": "src/court/turns.ts",
+          "symbol": "TurnSpec"
+        },
+        {
+          "file": "src/court/procedure.ts",
+          "symbol": "holdSession"
+        }
+      ],
+      "gaps": [
+        "G02",
+        "G03",
+        "G04"
+      ],
+      "workflowSteps": []
+    },
+    {
+      "id": "court.statement",
+      "routes": [
+        "expert:1",
+        "expert:2",
+        "expert:3",
+        "expert:4",
+        "expert:5"
+      ],
+      "dependsOn": [
+        "court.publish"
+      ],
+      "key": "turn/statement/spec-con-ids-estables/seat/attempt/prefix-hash",
+      "result": "TurnOutcome íntegro, done=true demostrado, at originales e IDs provisionales; derivados e IDs finales se fijan en publicación ordenada",
+      "effects": [
+        "model",
+        "artifact",
+        "sql"
+      ],
+      "evidence": [
+        {
+          "file": "src/court/turns.ts",
+          "symbol": "TurnSpec"
+        },
+        {
+          "file": "src/court/procedure.ts",
+          "symbol": "holdSession"
+        }
+      ],
+      "gaps": [
+        "G02",
+        "G03",
+        "G04"
+      ],
+      "workflowSteps": []
+    },
+    {
+      "id": "court.summary",
+      "routes": [
+        "expert:1",
+        "expert:2",
+        "expert:3",
+        "expert:4",
+        "expert:5"
+      ],
+      "dependsOn": [
+        "court.publish"
+      ],
+      "key": "turn/summary/spec-con-ids-estables/seat/attempt/prefix-hash",
+      "result": "TurnOutcome íntegro, done=true demostrado, at originales e IDs provisionales; derivados e IDs finales se fijan en publicación ordenada",
+      "effects": [
+        "model",
+        "artifact",
+        "sql"
+      ],
+      "evidence": [
+        {
+          "file": "src/court/turns.ts",
+          "symbol": "TurnSpec"
+        },
+        {
+          "file": "src/court/procedure.ts",
+          "symbol": "holdSession"
+        }
+      ],
+      "gaps": [
+        "G02",
+        "G03",
+        "G04"
+      ],
+      "workflowSteps": []
+    },
+    {
+      "id": "court.tiebreak",
+      "routes": [
+        "expert:1",
+        "expert:2",
+        "expert:3",
+        "expert:4",
+        "expert:5"
+      ],
+      "dependsOn": [
+        "court.publish"
+      ],
+      "key": "turn/tiebreak/spec-con-ids-estables/seat/attempt/prefix-hash",
+      "result": "TurnOutcome íntegro, done=true demostrado, at originales e IDs provisionales; derivados e IDs finales se fijan en publicación ordenada",
+      "effects": [
+        "model",
+        "artifact",
+        "sql"
+      ],
+      "evidence": [
+        {
+          "file": "src/court/turns.ts",
+          "symbol": "TurnSpec"
+        },
+        {
+          "file": "src/court/procedure.ts",
+          "symbol": "holdSession"
+        }
+      ],
+      "gaps": [
+        "G02",
+        "G03",
+        "G04"
+      ],
+      "workflowSteps": []
+    },
+    {
+      "id": "court.unification",
+      "routes": [
+        "expert:1",
+        "expert:2"
+      ],
+      "dependsOn": [
+        "court.publish"
+      ],
+      "key": "turn/unification/spec-con-ids-estables/seat/attempt/prefix-hash",
+      "result": "TurnOutcome íntegro, done=true demostrado, at originales e IDs provisionales; derivados e IDs finales se fijan en publicación ordenada",
+      "effects": [
+        "model",
+        "artifact",
+        "sql"
+      ],
+      "evidence": [
+        {
+          "file": "src/court/turns.ts",
+          "symbol": "TurnSpec"
+        },
+        {
+          "file": "src/court/procedure.ts",
+          "symbol": "holdSession"
+        }
+      ],
+      "gaps": [
+        "G02",
+        "G03",
+        "G04"
+      ],
+      "workflowSteps": []
+    },
+    {
+      "id": "court.publish",
+      "routes": [
+        "expert:1",
+        "expert:2",
+        "expert:3",
+        "expert:4",
+        "expert:5"
+      ],
+      "dependsOn": [
+        "case.open"
+      ],
+      "key": "logical-round/ordered-seat-results/prefix-hash/next-seq",
+      "result": "batch de eventos, asignación P/O/I/E, ausencias/decisiones y cursor atómicos; un asiento terminado se conserva aunque otro falle",
+      "effects": [
+        "sql"
+      ],
+      "evidence": [
+        {
+          "file": "src/court/procedure.ts",
+          "symbol": "holdSession"
+        },
+        {
+          "file": "src/workflows/steps.ts",
+          "symbol": "saveEvents"
+        },
+        {
+          "file": "src/workflows/steps.ts",
+          "symbol": "saveContinuationEvents"
+        }
+      ],
+      "gaps": [
+        "G01",
+        "G02",
+        "G04"
+      ],
+      "workflowSteps": [
+        {
+          "file": "src/workflows/steps.ts",
+          "symbol": "saveEvents"
+        },
+        {
+          "file": "src/workflows/steps.ts",
+          "symbol": "saveContinuationEvents"
+        },
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "play"
+        }
+      ]
+    },
+    {
+      "id": "legacy.translate-contributions",
+      "routes": [
+        "expert:1"
+      ],
+      "dependsOn": [
+        "court.instruction"
+      ],
+      "key": "turn-result-hash/language/translator/format",
+      "result": "outcome completo traducido + fuentes contribuidas exactas y errores de descarga",
+      "effects": [
+        "model",
+        "download",
+        "artifact"
+      ],
+      "evidence": [
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "translateContributions"
+        },
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "collectSources"
+        }
+      ],
+      "gaps": [
+        "G01",
+        "G04",
+        "G06"
+      ],
+      "workflowSteps": [
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "translateContributions"
+        },
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "collectSources"
+        }
+      ]
+    },
+    {
+      "id": "sources.fetch-batch",
+      "routes": [
+        "expert:3",
+        "expert:4",
+        "expert:5"
+      ],
+      "dependsOn": [
+        "court.instruction"
+      ],
+      "key": "ordered-canonical-urls/batch/reader-format",
+      "result": "FetchedUrl[] exacto, uno por URL, orden, sourceId o error exacto; ready exige originales/documentos/bloques/hashes/aliases íntegros",
+      "effects": [
+        "download",
+        "ocr",
+        "artifact",
+        "sql",
+        "browser",
+        "model"
+      ],
+      "evidence": [
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "fetchProposals"
+        },
+        {
+          "file": "src/instruction/proposed-urls.ts",
+          "symbol": "collectProposedBatches"
+        }
+      ],
+      "gaps": [
+        "G01",
+        "G04",
+        "G05",
+        "G06"
+      ],
+      "workflowSteps": [
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "fetchProposals"
+        }
+      ]
+    },
+    {
+      "id": "sources.file-proposals",
+      "routes": [
+        "expert:3",
+        "expert:4",
+        "expert:5"
+      ],
+      "dependsOn": [
+        "sources.fetch-batch"
+      ],
+      "key": "proposal-events+fetched-results+original-blocks/input-hash",
+      "result": "todos evidence_filed/evidence_unified y rejectionRecords originales; una lectura collectionSources por intento, cero red para resultados existentes",
+      "effects": [
+        "sql",
+        "artifact-read"
+      ],
+      "evidence": [
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "collectProposals"
+        },
+        {
+          "file": "src/instruction/collection.ts",
+          "symbol": "collectEvidence"
+        }
+      ],
+      "gaps": [
+        "G01",
+        "G04",
+        "G05"
+      ],
+      "workflowSteps": [
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "collectProposals"
+        }
+      ]
+    },
+    {
+      "id": "sources.acquire",
+      "routes": [
+        "expert:2",
+        "expert:3",
+        "expert:4",
+        "expert:5"
+      ],
+      "dependsOn": [
+        "intake.base"
+      ],
+      "key": "normalized-url/source-id/acquisition-format",
+      "result": "Acquisition exacta y original.bin con rawHash, finalUrl, at; alias conservado",
+      "effects": [
+        "download",
+        "browser",
+        "model",
+        "artifact",
+        "sql"
+      ],
+      "evidence": [
+        {
+          "file": "src/instruction/sources.ts",
+          "symbol": "SourceService"
+        }
+      ],
+      "gaps": [
+        "G01",
+        "G05",
+        "G06"
+      ],
+      "workflowSteps": []
+    },
+    {
+      "id": "sources.extract",
+      "routes": [
+        "expert:2",
+        "expert:3",
+        "expert:4",
+        "expert:5"
+      ],
+      "dependsOn": [
+        "sources.acquire"
+      ],
+      "key": "rawHash/extraction-version/extension-or-finalUrl",
+      "result": "StoredDocument completo, hash y block offsets, OCR/extraction original sin reconstrucción",
+      "effects": [
+        "ocr",
+        "local-process",
+        "artifact",
+        "sql"
+      ],
+      "evidence": [
+        {
+          "file": "src/instruction/sources.ts",
+          "symbol": "SourceService"
+        }
+      ],
+      "gaps": [
+        "G01",
+        "G05",
+        "G06"
+      ],
+      "workflowSteps": []
+    },
+    {
+      "id": "sources.canonical",
+      "routes": [
+        "expert:2",
+        "expert:3",
+        "expert:4",
+        "expert:5"
+      ],
+      "dependsOn": [
+        "sources.extract"
+      ],
+      "key": "sourceId/document-hash/title/original",
+      "result": "CanonicalSource schemaVersion=3 íntegro y bloques originales verificados",
+      "effects": [
+        "artifact",
+        "sql"
+      ],
+      "evidence": [
+        {
+          "file": "src/instruction/sources.ts",
+          "symbol": "SourceService"
+        }
+      ],
+      "gaps": [
+        "G01",
+        "G05"
+      ],
+      "workflowSteps": []
+    },
+    {
+      "id": "sources.discovery",
+      "routes": [
+        "expert:2",
+        "expert:3",
+        "expert:4",
+        "expert:5"
+      ],
+      "dependsOn": [
+        "phase.preparation"
+      ],
+      "key": "turnId/callId/kind/query/request-hash",
+      "result": "resultado de búsqueda íntegro y proveniencia; críticas ligadas al reviewSourceId",
+      "effects": [
+        "model",
+        "artifact",
+        "sql"
+      ],
+      "evidence": [
+        {
+          "file": "src/instruction/research.ts",
+          "symbol": "discover"
+        }
+      ],
+      "gaps": [
+        "G01",
+        "G06"
+      ],
+      "workflowSteps": []
+    },
+    {
+      "id": "sources.translate",
+      "routes": [
+        "expert:2",
+        "expert:3",
+        "expert:4",
+        "expert:5"
+      ],
+      "dependsOn": [
+        "sources.canonical"
+      ],
+      "key": "sourceId/document-hash/language/translator-fingerprint/version/chunk",
+      "result": "traducción íntegra, verificación de idioma y rechazos exactos, blockIds protegidos, hashes y uso por subllamada",
+      "effects": [
+        "model",
+        "artifact",
+        "sql"
+      ],
+      "evidence": [
+        {
+          "file": "src/instruction/sources.ts",
+          "symbol": "SourceService"
+        }
+      ],
+      "gaps": [
+        "G01",
+        "G03",
+        "G06"
+      ],
+      "workflowSteps": []
+    },
+    {
+      "id": "evidence.settle",
+      "routes": [
+        "expert:2",
+        "expert:3",
+        "expert:4",
+        "expert:5"
+      ],
+      "dependsOn": [
+        "court.source_review",
+        "sources.translate"
+      ],
+      "key": "admission-votes+language+source-hashes/schema",
+      "result": "evidence_settled schemaVersion=2 manifestHash + manifest/question/index/E#.md y secciones íntegros; sólo admitidas; cierre y evento se publican juntos",
+      "effects": [
+        "artifact",
+        "sql",
+        "broker"
+      ],
+      "evidence": [
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "settleShared"
+        },
+        {
+          "file": "src/evidence/settled.ts",
+          "symbol": "settleEvidence"
+        }
+      ],
+      "gaps": [
+        "G01",
+        "G02",
+        "G04"
+      ],
+      "workflowSteps": [
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "settleShared"
+        }
+      ]
+    },
+    {
+      "id": "quick.identify",
+      "routes": [
+        "quick:1",
+        "quick:2",
+        "quick:3",
+        "quick:4",
+        "quick:5"
+      ],
+      "dependsOn": [
+        "case.language"
+      ],
+      "key": "quick/seat/claim-or-content/identify/attempt/request-hash",
+      "result": "QuickClaims con A# estables, quote/text y at; opcional identifyClaims, hasta 2 intentos",
+      "effects": [
+        "model",
+        "artifact",
+        "sql"
+      ],
+      "evidence": [
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "identifyQuick"
+        },
+        {
+          "file": "src/court/quick-play.ts",
+          "symbol": "generation"
+        }
+      ],
+      "gaps": [
+        "G01",
+        "G03",
+        "G04",
+        "G06"
+      ],
+      "workflowSteps": [
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "identifyQuick"
+        }
+      ]
+    },
+    {
+      "id": "quick.answer",
+      "routes": [
+        "quick:1",
+        "quick:2",
+        "quick:3",
+        "quick:4",
+        "quick:5"
+      ],
+      "dependsOn": [
+        "quick.identify"
+      ],
+      "key": "quick/seat/claim-or-content/answer/attempt/request-hash",
+      "result": "QuickAnswer completo text/sources/at/modelId/effort y request exacto por asiento; claims en entrada",
+      "effects": [
+        "model",
+        "artifact",
+        "sql"
+      ],
+      "evidence": [
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "answerQuick"
+        },
+        {
+          "file": "src/court/quick-play.ts",
+          "symbol": "generation"
+        }
+      ],
+      "gaps": [
+        "G01",
+        "G03",
+        "G04",
+        "G06"
+      ],
+      "workflowSteps": [
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "answerQuick"
+        }
+      ]
+    },
+    {
+      "id": "quick.vote",
+      "routes": [
+        "quick:1",
+        "quick:2",
+        "quick:3",
+        "quick:4",
+        "quick:5"
+      ],
+      "dependsOn": [
+        "quick.answer"
+      ],
+      "key": "quick/seat/claim-or-content/vote/attempt/request-hash",
+      "result": "QuickVote por asiento y claimId O contenido; rationale >=10, retry y text completos",
+      "effects": [
+        "model",
+        "artifact",
+        "sql"
+      ],
+      "evidence": [
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "voteQuick"
+        },
+        {
+          "file": "src/court/quick-play.ts",
+          "symbol": "generation"
+        }
+      ],
+      "gaps": [
+        "G01",
+        "G03",
+        "G04",
+        "G06"
+      ],
+      "workflowSteps": [
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "voteQuick"
+        }
+      ]
+    },
+    {
+      "id": "quick.tiebreak",
+      "routes": [
+        "quick:1",
+        "quick:2",
+        "quick:3",
+        "quick:4",
+        "quick:5"
+      ],
+      "dependsOn": [
+        "quick.vote"
+      ],
+      "key": "quick/seat/claim-or-content/tiebreak/attempt/request-hash",
+      "result": "QuickDecision por claimId O contenido, reasoning no vacío; entradas exactas; sin nueva investigación",
+      "effects": [
+        "model",
+        "artifact",
+        "sql"
+      ],
+      "evidence": [
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "tiebreakQuick"
+        },
+        {
+          "file": "src/court/quick-play.ts",
+          "symbol": "generation"
+        }
+      ],
+      "gaps": [
+        "G01",
+        "G03",
+        "G04",
+        "G06"
+      ],
+      "workflowSteps": [
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "tiebreakQuick"
+        }
+      ]
+    },
+    {
+      "id": "quick.publish",
+      "routes": [
+        "quick:1",
+        "quick:2",
+        "quick:3",
+        "quick:4",
+        "quick:5"
+      ],
+      "dependsOn": [
+        "quick.vote"
+      ],
+      "key": "ordered-seat-results/claim-order/next-seq",
+      "result": "respuestas/votos de todos los asientos publicados por ronda; desempates por claim, at originales; optional identify ruta separada",
+      "effects": [
+        "sql"
+      ],
+      "evidence": [
+        {
+          "file": "src/court/quick.ts",
+          "symbol": "holdQuickSession"
+        },
+        {
+          "file": "src/court/quick-continuation.ts",
+          "symbol": "quickContentConsensusPublication"
+        },
+        {
+          "file": "src/court/quick-continuation.ts",
+          "symbol": "restoreQuickContentConsensusCursor"
+        }
+      ],
+      "gaps": [
+        "G01",
+        "G02",
+        "G04"
+      ],
+      "workflowSteps": []
+    },
+    {
+      "id": "cover.choice",
+      "routes": [
+        "expert:1",
+        "expert:2",
+        "expert:3",
+        "expert:4",
+        "expert:5",
+        "quick:1",
+        "quick:2",
+        "quick:3",
+        "quick:4",
+        "quick:5"
+      ],
+      "dependsOn": [
+        "court.publish",
+        "quick.publish"
+      ],
+      "key": "cover/choice/brief+models+image-or-prompt-hash",
+      "result": "CoverChoice prompt e imageUrl + búsquedas y uso originales",
+      "effects": [
+        "model"
+      ],
+      "evidence": [
+        {
+          "file": "src/court/cover.ts",
+          "symbol": "chooseWithGrok"
+        }
+      ],
+      "gaps": [
+        "G01",
+        "G06"
+      ],
+      "workflowSteps": []
+    },
+    {
+      "id": "cover.download",
+      "routes": [
+        "expert:1",
+        "expert:2",
+        "expert:3",
+        "expert:4",
+        "expert:5",
+        "quick:1",
+        "quick:2",
+        "quick:3",
+        "quick:4",
+        "quick:5"
+      ],
+      "dependsOn": [
+        "cover.choice"
+      ],
+      "key": "cover/download/brief+models+image-or-prompt-hash",
+      "result": "bytes, mimeType, sourceUrl y hash; no imagen inválida",
+      "effects": [
+        "download"
+      ],
+      "evidence": [
+        {
+          "file": "src/court/cover.ts",
+          "symbol": "downloadImage"
+        }
+      ],
+      "gaps": [
+        "G01",
+        "G06"
+      ],
+      "workflowSteps": []
+    },
+    {
+      "id": "cover.approve",
+      "routes": [
+        "expert:1",
+        "expert:2",
+        "expert:3",
+        "expert:4",
+        "expert:5",
+        "quick:1",
+        "quick:2",
+        "quick:3",
+        "quick:4",
+        "quick:5"
+      ],
+      "dependsOn": [
+        "cover.download"
+      ],
+      "key": "cover/approve/brief+models+image-or-prompt-hash",
+      "result": "YES/NO íntegro ligado a brief y hash de imagen",
+      "effects": [
+        "model"
+      ],
+      "evidence": [
+        {
+          "file": "src/court/cover.ts",
+          "symbol": "approveCover"
+        }
+      ],
+      "gaps": [
+        "G01",
+        "G06"
+      ],
+      "workflowSteps": []
+    },
+    {
+      "id": "cover.generate",
+      "routes": [
+        "expert:1",
+        "expert:2",
+        "expert:3",
+        "expert:4",
+        "expert:5",
+        "quick:1",
+        "quick:2",
+        "quick:3",
+        "quick:4",
+        "quick:5"
+      ],
+      "dependsOn": [
+        "cover.choice"
+      ],
+      "key": "cover/generate/brief+models+image-or-prompt-hash",
+      "result": "bytes/mimeType/hash y usage originales; fallback explícito tras rechazo/falla de choice",
+      "effects": [
+        "model"
+      ],
+      "evidence": [
+        {
+          "file": "src/court/cover.ts",
+          "symbol": "generateWithGrok"
+        }
+      ],
+      "gaps": [
+        "G01",
+        "G06"
+      ],
+      "workflowSteps": []
+    },
+    {
+      "id": "cover.publish",
+      "routes": [
+        "expert:1",
+        "expert:2",
+        "expert:3",
+        "expert:4",
+        "expert:5",
+        "quick:1",
+        "quick:2",
+        "quick:3",
+        "quick:4",
+        "quick:5"
+      ],
+      "dependsOn": [
+        "cover.approve",
+        "cover.generate"
+      ],
+      "key": "cover/publish/brief+models+image-or-prompt-hash",
+      "result": "StoredCover con bytes/hash, generated/sourceUrl o skip(image/simulated) explícito; sin asumir éxito porque wrapper tragó error",
+      "effects": [
+        "sql"
+      ],
+      "evidence": [
+        {
+          "file": "src/court/cover.ts",
+          "symbol": "illustrateCase"
+        }
+      ],
+      "gaps": [
+        "G01",
+        "G06"
+      ],
+      "workflowSteps": [
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "illustrate"
+        }
+      ]
+    },
+    {
+      "id": "archive.prompt-translation",
+      "routes": [
+        "expert:1",
+        "expert:2",
+        "expert:3",
+        "expert:4",
+        "expert:5",
+        "quick:1",
+        "quick:2",
+        "quick:3",
+        "quick:4",
+        "quick:5"
+      ],
+      "dependsOn": [
+        "cover.publish"
+      ],
+      "key": "prompt-source-hash/language/version/model-contract",
+      "result": "cada prompt completo traducido y cache publicado + audit/usage; archivo debe verificar missing=0, loop de 50 no prueba completitud",
+      "effects": [
+        "model",
+        "sql"
+      ],
+      "evidence": [
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "translatePrompts"
+        },
+        {
+          "file": "src/evidence/prompt-translation.ts",
+          "symbol": "cachePromptTranslations"
+        }
+      ],
+      "gaps": [
+        "G01",
+        "G03",
+        "G06",
+        "G09"
+      ],
+      "workflowSteps": [
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "translatePrompts"
+        }
+      ]
+    },
+    {
+      "id": "archive.publish",
+      "routes": [
+        "expert:1",
+        "expert:2",
+        "expert:3",
+        "expert:4",
+        "expert:5",
+        "quick:1",
+        "quick:2",
+        "quick:3",
+        "quick:4",
+        "quick:5"
+      ],
+      "dependsOn": [
+        "archive.prompt-translation"
+      ],
+      "key": "events+audit+operations+files-hashes/archive-format",
+      "result": "case.jsonl/case.json y ZIP bytes/hash/etag completos; legacy también transcript/updatedRuns; resultado o skip(storage/simulated) explícito",
+      "effects": [
+        "artifact",
+        "object-storage",
+        "sql",
+        "model"
+      ],
+      "evidence": [
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "archive"
+        },
+        {
+          "file": "src/evidence/archive.ts",
+          "symbol": "archiveEvidence"
+        },
+        {
+          "file": "src/evidence/archive.ts",
+          "symbol": "getOrCreateEvidenceArchive"
+        }
+      ],
+      "gaps": [
+        "G01",
+        "G06",
+        "G09"
+      ],
+      "workflowSteps": [
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "archive"
+        }
+      ]
+    },
+    {
+      "id": "sandbox.revoke",
+      "routes": [
+        "expert:2",
+        "expert:3",
+        "expert:4",
+        "expert:5"
+      ],
+      "dependsOn": [
+        "evidence.settle"
+      ],
+      "key": "generation/run/phase/binding-id",
+      "result": "revocación ligada a generación y a binding concreto; también failure/stop/admin rutas",
+      "effects": [
+        "sql",
+        "broker"
+      ],
+      "evidence": [
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "revokeShared"
+        },
+        {
+          "file": "src/store.ts",
+          "symbol": "revokeSandboxBindings"
+        }
+      ],
+      "gaps": [
+        "G01",
+        "G07",
+        "G08"
+      ],
+      "workflowSteps": [
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "revokeShared"
+        }
+      ]
+    },
+    {
+      "id": "sandbox.dispose",
+      "routes": [
+        "expert:2",
+        "expert:3",
+        "expert:4",
+        "expert:5"
+      ],
+      "dependsOn": [
+        "sandbox.revoke"
+      ],
+      "key": "generation/run/sandbox-name/snapshot-id",
+      "result": "lista exacta, retención de referencias requeridas, evidencia de inactividad; no borrar por failed/cancelled/lease",
+      "effects": [
+        "sandbox"
+      ],
+      "evidence": [
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "disposeSandboxes"
+        },
+        {
+          "file": "src/instruction/preparation.ts",
+          "symbol": "deleteCaseSandboxes"
+        },
+        {
+          "file": "src/instruction/preparation.ts",
+          "symbol": "sweepCaseSandboxes"
+        }
+      ],
+      "gaps": [
+        "G01",
+        "G07",
+        "G08"
+      ],
+      "workflowSteps": [
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "disposeSandboxes"
+        }
+      ]
+    },
+    {
+      "id": "case.close",
+      "routes": [
+        "expert:1",
+        "expert:2",
+        "expert:3",
+        "expert:4",
+        "expert:5",
+        "quick:1",
+        "quick:2",
+        "quick:3",
+        "quick:4",
+        "quick:5"
+      ],
+      "dependsOn": [
+        "archive.publish"
+      ],
+      "key": "generation/run/final-result-hash",
+      "result": "estado/auditoría/revisión/notificación ligados al mismo run; no confundir session_closed con resolved",
+      "effects": [
+        "sql"
+      ],
+      "evidence": [
+        {
+          "file": "src/workflows/steps.ts",
+          "symbol": "closeCase"
+        },
+        {
+          "file": "src/workflows/steps.ts",
+          "symbol": "closeContinuationCase"
+        },
+        {
+          "file": "src/store.ts",
+          "symbol": "finishCase"
+        }
+      ],
+      "gaps": [
+        "G01",
+        "G02"
+      ],
+      "workflowSteps": [
+        {
+          "file": "src/workflows/steps.ts",
+          "symbol": "closeCase"
+        },
+        {
+          "file": "src/workflows/steps.ts",
+          "symbol": "closeContinuationCase"
+        }
+      ]
+    }
+  ],
+  "dependencySemantics": "Templates express prerequisites for instances, not a static DAG: court.publish repeats per round; optional units/branches need explicit skip evidence; failure cleanup is separate from success dependencies.",
+  "gaps": [
+    "G01",
+    "G02",
+    "G03",
+    "G04",
+    "G05",
+    "G06",
+    "G07",
+    "G08",
+    "G09",
+    "G10"
+  ]
+}

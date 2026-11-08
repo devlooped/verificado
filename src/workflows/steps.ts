@@ -1,5 +1,6 @@
 import { checkType, sharedPipeline, type PipelineVersion, type Submission } from "../domain/court.ts";
-import { finishCase, openSession, recordEvents } from "../store.ts";
+import { finishCase, openSession, recordEvents, registerContinuationRun } from "../store.ts";
+import type { ContinuationReservation, ContinuationWriter } from "../domain/continuation.ts";
 import type { RecordedEvent } from "../domain/court.ts";
 import { mockAiEnabled } from "../court/mock.ts";
 import { requestedPipeline } from "../instruction/rollout.ts";
@@ -43,4 +44,26 @@ export async function closeCase(caseId: string, status: "resolved" | "failed", e
     await finishCase(caseId, status, error);
     caseLog(caseId, status === "failed" ? "error" : "info", "case.closed", { "case.status": status });
   });
+}
+
+// Separate first step for a future continuation workflow; never insert this
+// invocation into the replay sequence of courtSession runs already active.
+export async function registerContinuationCaseRun(caseId: string, reservation: ContinuationReservation): Promise<ContinuationWriter> {
+  "use step";
+  const { workflowRunId } = getWorkflowMetadata();
+  await registerContinuationRun(caseId,reservation,workflowRunId);
+  return {generation:reservation.generation,runId:workflowRunId};
+}
+
+// Keep generation-aware signatures separate from legacy replay entry points.
+export async function saveContinuationEvents(caseId: string, writer: ContinuationWriter, events: RecordedEvent[]): Promise<void> {
+  "use step";
+  if (getWorkflowMetadata().workflowRunId !== writer.runId) throw new Error("Continuation writer does not match executing run");
+  await recordEvents(caseId,events,writer);
+}
+
+export async function closeContinuationCase(caseId: string, writer: ContinuationWriter, status: "resolved" | "failed", error?: string): Promise<void> {
+  "use step";
+  if (getWorkflowMetadata().workflowRunId !== writer.runId) throw new Error("Continuation writer does not match executing run");
+  await finishCase(caseId,status,error,writer);
 }

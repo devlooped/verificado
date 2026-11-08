@@ -74,7 +74,7 @@ pipeline 1 cases keep their original tools, artifact formats, and download URLs;
   stays in the case log. The case
   error names the operation key, stage, status and stored reason. A failed seat
   lets the other seats of its round finish before the case fails and its
-  sandboxes are deleted.
+  sandbox resources are retained; revocation of grants does not authorize deletion.
 - Debate tools read only manifest-listed IDs/sections, never URLs, originals or
   instruction drafts. All source-bearing court actions validate corpus citations.
   Local sandbox computation accepts bounded numeric operations, not shell code.
@@ -108,15 +108,19 @@ the input mounted into debate sandboxes. Legacy archives are not rewritten.
 
 Only admins can retry failed cases or see raw failure details. Other visitors
 receive a generic failure message with no retry control. The failed-case page's
-**Reintentar** action and the admin rerun both perform a full reset before
-starting a new workflow. They preserve the public case ID,
-original submission/upload and access metadata, not generated processing state.
-Events, covers, source operations/aliases, audit records, phase checkpoints,
-sandbox bindings, Blob artifacts and the case's sandboxes (found by their `case`
-tag, so bindings are not needed) are removed; detected language and recorded
-model/pipeline selections are cleared. The fresh preparation VM uses the current
-configured snapshot rather than resuming any previous VM. Automatic retries of
-a step within the same execution still reuse that execution's checkpoints.
+**Reintentar** action is blocked server-side and has no effects. The separate
+administrative rerun and deletion are also blocked while safe resource cleanup
+is unproved. They return HTTP 409 with `code: sandbox_cleanup_blocked`, preserving
+the entire case, upload, access metadata, generated state, Blob artifacts,
+aliases, phase checkpoints and sandbox bindings. No new workflow is started.
+The store checks under the case lock before any destructive callback, so a
+direct caller or no-op callback cannot discard private-resource references.
+Terminal status, cancellation, expired grants or absent tags/bindings do not
+prove complete references or historical writer inactivity. This does not recover
+references/resources lost by earlier resets or already-expired snapshots.
+Automatic cleanup logs the block without replacing the original workflow error;
+it keeps the existing step sequence. Same-execution retries can reuse active
+legacy checkpoints, but this is not public continuation or a reset fallback.
 
 ## Local verification and recovery
 
@@ -178,12 +182,30 @@ authorization. Plan completion records implementation, not a passed live smoke.
 
 Persistent sandboxes resume by name. Their OIDC-verified `sandboxName` selects
 the binding, not the VM `sandboxId`, which can change across resumes.
-Each stop snapshots the VM for the next turn; only the latest snapshot is kept
-(24 h expiry), and the case's sandboxes, bound or tagged `case:<id>`, are deleted
-with their snapshots when the case resolves or fails. A sweep that runs with the
-admin notification check deletes the stopped preparation sandboxes (tagged
-`case` and `phase`) of resolved, failed or deleted cases that this missed;
-untagged snapshot-build and `purpose:*` smoke sandboxes are never swept.
+Each stop snapshots the VM for the next turn. Future preparation snapshots use
+no expiration and no deletion on eviction (SDK policy: `snapshotExpiration: 0`,
+`keepLastSnapshots: { count: 1, expiration: 0, deleteEvicted: false }`). Before
+accessing an existing VM or explicitly stopping it, its future-snapshot policy
+is updated without an explicit resume. An API/quota failure blocks rather than
+running a new command or explicitly stopping under the old policy.
+Automatic case deletion and the notification sweep are blocked for **all**
+case sandboxes, including resolved, failed, deleted, renamed and ambiguous tags:
+there is no complete durable reference-release and historical-inactivity proof.
+The workflow cleanup step stays in its original position for replay and logs
+`case.sandboxes.cleanup_blocked`; revoking a grant still preserves resource IDs.
+The sweep returns no deleted names and does not enumerate provider resources.
+Untagged snapshot-build and `purpose:*` smoke resources are likewise untouched.
+
+This is not historical recovery. Already-expiring snapshots retain their old
+expiration, and already-deleted snapshots cannot be restored by this change.
+Stopped historical VMs not accessed by this code are not retroactively updated.
+Provider automatic timeout/retention and old deployments remain unverified; if
+a policy update fails, this code cannot prevent the provider's own timeout.
+Retention increases storage. Historical resets may already have detached private
+resources; current admin reset/deletion is blocked and does not authorize losing
+more references. No quota monitor, cost estimate, complete resource registry or
+safe deletion protocol is implemented. Do not run provider calls to validate
+these assumptions without separate authorization.
 Evidence-step sandboxes are not persistent.
 The SDK-authenticated proxy checks team/project, sandbox/case/session binding,
 committed phase, active turn, expiry and request budget. Only exact POST tool and

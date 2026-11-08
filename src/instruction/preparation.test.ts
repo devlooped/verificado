@@ -3,7 +3,7 @@ import test from "node:test";
 import { Sandbox } from "@vercel/sandbox";
 import { FatalError } from "workflow";
 import { MemoryPhaseRepository, PhaseSession } from "../court/phase-session.ts";
-import { advancePreparation, deleteCaseSandboxes, NATIVE_CALL_MARGIN_MS, nativePreparationDefinitions, PREPARATION_SYNTHESIS_MS, prepareInSandbox, sweepCaseSandboxes, withSandboxCleanup } from "./preparation.ts";
+import { advancePreparation, deleteCaseSandboxes, NATIVE_CALL_MARGIN_MS, nativePreparationDefinitions, PREPARATION_SNAPSHOTS, PREPARATION_SYNTHESIS_MS, prepareInSandbox, SandboxCleanupBlockedError, sweepCaseSandboxes, withSandboxCleanup } from "./preparation.ts";
 
 test("preparation requires a final response, preserves checkpoints on exhaustion, and resumes the same sandbox", async () => {
   const keys = ["INSTRUCTION_TOOL_ORIGIN", "INSTRUCTION_SANDBOX_SNAPSHOT_ID", "INSTRUCTION_SANDBOX_TEAM_ID", "INSTRUCTION_SANDBOX_PROJECT_ID"] as const;
@@ -14,6 +14,7 @@ test("preparation requires a final response, preserves checkpoints on exhaustion
     let response = { messages: [{ role: "assistant", content: "Still working" }], text: "unfinished draft", finishReason: "tool-calls" };
     const tasks: Array<{ callId: string; toolChoice: string; timeoutMs: number }> = [];
     let synthesize = false, interruptRead = false;
+    let resumeRequested = false;
     const sandbox = {
       name: "persistent-fixture", writeFiles: async (files: { path: string; content: string }[]) => {
         const task = files.find((file) => file.path === "/workspace/task.json");
@@ -25,6 +26,7 @@ test("preparation requires a final response, preserves checkpoints on exhaustion
         }
       },
       runCommand: async (command: { cmd: string; detached?: boolean }) => {
+        if (resumeRequested) { resumes++; resumeRequested = false; }
         if (command.cmd !== "node") return { exitCode: 0 };
         assert.equal(command.detached, true, "a model call never holds the step that starts it");
         runs++;
@@ -38,18 +40,19 @@ test("preparation requires a final response, preserves checkpoints on exhaustion
           ? { messages: [{ role: "assistant", content: "Final analysis" }], text: "Final analysis", finishReason: "stop" }
           : response));
       },
-      stop: async () => { stops++; },
+      update: async (policy: typeof PREPARATION_SNAPSHOTS) => { assert.deepEqual(policy, PREPARATION_SNAPSHOTS); },
+      stop: async () => { stops++; resumeRequested = false; },
     };
     const deps = {
       sandbox: {
         create: async (input: { timeout: number; persistent: boolean; snapshotExpiration: number; keepLastSnapshots: unknown }) => {
           assert.equal(input.timeout, 300_000);
           assert.equal(input.persistent, true);
-          assert.equal(input.snapshotExpiration, 24 * 60 * 60_000, "resume snapshots outlive a phase, not a month");
-          assert.deepEqual(input.keepLastSnapshots, { count: 1, deleteEvicted: true }, "each stop replaces the previous resume snapshot");
-          creates++; return sandbox;
+          assert.equal(input.snapshotExpiration, 0, "future snapshots must not expire automatically");
+          assert.deepEqual(input.keepLastSnapshots, { count: 1, expiration: 0, deleteEvicted: false }, "older referenced snapshots are not deleted on eviction");
+          creates++; resumeRequested = false; return sandbox;
         },
-        get: async (input: { name: string; resume?: boolean }) => { assert.equal(input.name, sandbox.name); if (input.resume) resumes++; return sandbox; },
+        get: async (input: { name: string; resume?: boolean }) => { assert.equal(input.name, sandbox.name); assert.equal(input.resume, false); resumeRequested = true; return sandbox; },
       } as unknown as typeof Sandbox,
       bind: async (_caseId: string, name: string) => { assert.equal(name, sandbox.name); },
     };
@@ -148,6 +151,7 @@ test("a call that outlasts one wait continues in a later unit, keeping its grant
     const running = { cmdId: "call-1", wait: ({ signal }: { signal: AbortSignal }) => finished ? Promise.resolve({ exitCode: 0 }) : new Promise((_, reject) => signal.addEventListener("abort", () => reject(signal.reason))) };
     const sandbox = {
       name: "persistent-slow", status: "running", writeFiles: async () => {},
+      update: async (policy: typeof PREPARATION_SNAPSHOTS) => { assert.deepEqual(policy, PREPARATION_SNAPSHOTS); },
       runCommand: async (command: { cmd: string }) => { if (command.cmd === "node") { runs++; return running; } return { exitCode: 0 }; },
       getCommand: async (id: string) => { assert.equal(id, "call-1"); return running; },
       readFileToBuffer: async () => Buffer.from(JSON.stringify({ messages: [{ role: "assistant", content: "Slow analysis" }], text: "Slow analysis", finishReason: "stop" })),
@@ -195,6 +199,7 @@ test("tool calls end before the synthesis reserve, and one that runs out of time
     let elapse = (_ms: number) => {};
     const sandbox = {
       name: "persistent-reserve", status: "running",
+      update: async (policy: typeof PREPARATION_SNAPSHOTS) => { assert.deepEqual(policy, PREPARATION_SNAPSHOTS); },
       writeFiles: async (files: { path: string; content: string }[]) => {
         const task = files.find((file) => file.path === "/workspace/task.json");
         if (task) tasks.push(JSON.parse(task.content));
@@ -260,20 +265,18 @@ function sandboxes(listed: Listed[], deleted: string[]) {
   } as unknown as typeof Sandbox;
 }
 
-test("a finished case deletes each of its sandboxes with their orphan snapshots, and reports failures after trying them all", async () => {
+test("automatic deletion retains bound and tagged resources regardless of terminal status or missing ownership evidence", async () => {
   const deleted: string[] = [];
   const sandbox = sandboxes([], deleted);
-  await deleteCaseSandboxes("fixture", { sandbox, names: async (caseId) => { assert.equal(caseId, "fixture"); return ["a", "b"]; } });
-  assert.deepEqual(deleted.sort(), ["a", "b"]);
-  deleted.length = 0;
-  await assert.rejects(deleteCaseSandboxes("fixture", { sandbox, names: async () => ["broken", "c"] }), /1 failure/);
-  assert.deepEqual(deleted, ["c"]);
-  await deleteCaseSandboxes("fixture", { sandbox, names: async () => [] });
-  await deleteCaseSandboxes("fixture", { sandbox, names: async () => ["gone", "c"] });
-  assert.deepEqual(deleted, ["c"], "a sandbox an earlier cleanup deleted is not a failure");
+  let reads = 0;
+  for (const id of ["failed", "resolved", "missing", "renamed", "lease-expired", "cancelled", "generation-2", "x".repeat(32), "x".repeat(40)]) {
+    await assert.rejects(deleteCaseSandboxes(id, { sandbox, names: async () => { reads++; return ["a", "b"]; } }), SandboxCleanupBlockedError);
+  }
+  assert.equal(reads, 0, "cleanup must not wait on the row lock already held by an administrative reset");
+  assert.deepEqual(deleted, []);
 });
 
-test("a rerun deletes the case's sandboxes by tag after their bindings are gone, without blocking on a failure", async () => {
+test("administrative cleanup blocks before Blob or sandbox removal and propagates the block", async () => {
   const deleted: string[] = [];
   const sandbox = sandboxes([
     { name: "prep-old-name", status: "stopped", tags: { case: "AA-123-BB", phase: "instruction", seat: "grok" } },
@@ -283,18 +286,16 @@ test("a rerun deletes the case's sandboxes by tag after their bindings are gone,
   ], deleted);
   const blobs: string[][] = [];
   const cleanup = withSandboxCleanup(async (ids) => { blobs.push(ids); }, (caseId) => deleteCaseSandboxes(caseId, { sandbox, names: async () => [] }));
-  await cleanup(["AA-123-BB", "old_id"]);
-  assert.deepEqual(blobs, [["AA-123-BB", "old_id"]]);
-  assert.deepEqual(deleted.sort(), ["prep-old-name", "prep-renamed"]);
-
   const warn = console.warn;
   console.warn = () => {};
-  try { await withSandboxCleanup(async () => {}, async () => { throw new Error("Sandbox API unavailable"); })(["AA-123-BB"]); }
+  try { await assert.rejects(cleanup(["AA-123-BB", "old_id"]), SandboxCleanupBlockedError); }
   finally { console.warn = warn; }
-  await assert.rejects(withSandboxCleanup(async () => { throw new Error("blob failure"); })(["AA-123-BB"]), /blob failure/);
+  assert.deepEqual(blobs, []);
+  assert.deepEqual(deleted, []);
+  await assert.rejects(withSandboxCleanup(async () => { throw new Error("must not reach Blob"); }, async () => {})(["AA-123-BB"]), SandboxCleanupBlockedError);
 });
 
-test("the sweep deletes only stopped preparation sandboxes of ended or missing cases", async () => {
+test("the sweep retains failed, resolved, orphaned and ambiguously tagged snapshots without a status-cache deletion race", async (t) => {
   const deleted: string[] = [];
   const prep = (name: string, caseId: string, status = "stopped") => ({ name, status, tags: { case: caseId, phase: "instruction", seat: "grok" } });
   const sandbox = sandboxes([
@@ -305,9 +306,13 @@ test("the sweep deletes only stopped preparation sandboxes of ended or missing c
     { name: "harness-build", status: "stopped" }, { name: "smoke", status: "stopped", tags: { purpose: "smoke" } },
   ], deleted);
   const statuses: Record<string, string> = { "AA-111-AA": "resolved", "AA-222-AA": "failed", "AA-444-AA": "in_session", "AA-555-AA": "queued" };
-  const swept = await sweepCaseSandboxes({ sandbox, caseStatus: async (caseId) => statuses[caseId] });
-  assert.deepEqual(swept.sort(), ["deleted-case", "failed", "resolved"]);
-  assert.deepEqual(deleted.sort(), ["deleted-case", "failed", "resolved"]);
+  let reads = 0;
+  const warning = t.mock.method(console, "warn", () => {});
+  const swept = await sweepCaseSandboxes({ sandbox, caseStatus: async (caseId) => { reads++; return statuses[caseId]; } });
+  assert.deepEqual(swept, []);
+  assert.deepEqual(deleted, []);
+  assert.equal(reads, 0);
+  assert.match(String(warning.mock.calls[0]?.arguments[0]), /cleanup blocked/);
 });
 
 
@@ -321,6 +326,7 @@ test("pipeline 3 prepares with one native research call and files nothing when i
     const tasks: Array<{ tools: unknown[]; maxOutputTokens?: number | null; timeoutMs: number; toolChoice: string }> = [];
     const bindings: Array<{ gatewayTools: unknown[]; maxOutputTokens?: number | null }> = [];
     const sandbox = {
+      update: async (policy: typeof PREPARATION_SNAPSHOTS) => { assert.deepEqual(policy, PREPARATION_SNAPSHOTS); },
       name: "native-fixture",
       writeFiles: async (files: { path: string; content: string }[]) => { const task = files.find((file) => file.path === "/workspace/task.json"); if (task) tasks.push(JSON.parse(task.content)); },
       runCommand: async (command: { cmd: string }) => { if (command.cmd !== "node") return { exitCode: 0 }; runs++; return { cmdId: `call-${runs}`, wait: async () => ({ exitCode: 0 }) }; },

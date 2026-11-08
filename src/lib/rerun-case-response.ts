@@ -1,4 +1,5 @@
 import { isAdmin, type CaseUser } from "./case-access.ts";
+import { SandboxCleanupBlockedError, SANDBOX_CLEANUP_BLOCKED_RESPONSE } from "./sandbox-cleanup.ts";
 
 type RerunDependencies = {
   restartCase: (id: string) => Promise<"queued" | "missing" | "active" | "missing-image">;
@@ -24,6 +25,7 @@ export async function rerunCaseResponse(request: Request, id: string, user: Case
     }
     return Response.json({ id }, { status: 200 });
   } catch (error) {
+    if (error instanceof SandboxCleanupBlockedError) return Response.json(SANDBOX_CLEANUP_BLOCKED_RESPONSE, { status: 409 });
     console.error("Case rerun failed:", error);
     return Response.json({ error: "No se pudo volver a ejecutar el caso." }, { status: 500 });
   }

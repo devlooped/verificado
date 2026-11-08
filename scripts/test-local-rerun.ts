@@ -1,97 +1,119 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { mock } from "node:test";
 import nextEnv from "@next/env";
-import { Pool } from "pg";
+import { Pool, type PoolClient } from "pg";
 import { Sandbox } from "@vercel/sandbox";
-import { PhaseSession } from "../src/court/phase-session.ts";
-import { prepareInSandbox } from "../src/instruction/preparation.ts";
-import { requireLocalDatabase } from "../src/lib/local-database.ts";
-import { consumeSandboxBinding, createCase, deleteCase, finishCase, getCase, getCaseAuditRecords, getCover, getEvents, getImage, getSourceOperations, loadPhaseCheckpoint, openSession, recordEvents, requeueCase, revokeSandboxBindings, saveCaseAuditRecord, saveCaseLanguage, saveCaseModels, saveCover, saveSandboxBinding, sourceOperationRepository as operations } from "../src/store.ts";
+import { requireLocalDatabase, LOCAL_DATABASE } from "../src/lib/local-database.ts";
 
 nextEnv.loadEnvConfig(process.cwd(), true);
-const cleanup = new Pool({ connectionString: requireLocalDatabase(), connectionTimeoutMillis: 5000 });
+const connectionString = requireLocalDatabase(); // Before store/routes or any connection.
+const sql = new Pool({ connectionString, max: 4, connectionTimeoutMillis: 5000, query_timeout: 10000 });
 const id = `fixture-rerun-${randomUUID()}`;
-const submission = { kind: "image" as const, mimeType: "image/png", note: "Original fixture input", language: "es" as const };
-const image = Buffer.from("Original fixture image");
-const initial = { phase: "intake" as const, seat: "judge" as const, channel: "preparation" as const, model: { id: "fixture/old-model" }, system: "Old system", tools: "[]", initial: "Old canonical material" };
-const artifacts = new Map([["old-artifact", "Old generated output"]]);
-await createCase(id, submission, image, "fixture-owner");
+let external = 0;
+const forbidden = async () => { external++; throw new Error("External fixture effect forbidden"); };
+mock.method(globalThis, "fetch", forbidden);
+mock.method(Sandbox, "get", forbidden);
+mock.method(Sandbox, "list", forbidden);
+mock.method(Sandbox, "create", forbidden);
 try {
-  await openSession(id, 2);
-  await saveCaseLanguage(id, "es");
-  await saveCaseModels(id, { judge: { id: "fixture/old-model", effort: null } });
-  await recordEvents(id, [{ type: "instruction_opened", seq: 1, at: new Date().toISOString() }]);
-  await saveCover(id, { mimeType: "image/png", bytes: Buffer.from("Old generated cover"), generated: true });
-  const claim = await operations.claim(id, "old-operation", "acquisition", 30_000);
+  assert.deepEqual((await sql.query("SELECT current_database() AS db, current_user AS usr")).rows[0], { db: LOCAL_DATABASE, usr: "grokeado" });
+  const store = await import("../src/store.ts");
+  const { PhaseSession } = await import("../src/court/phase-session.ts");
+  const cleanup = await import("../src/instruction/preparation.ts");
+  const { auth0 } = await import("../src/lib/auth0.ts");
+  mock.method(auth0, "getSession", async () => ({ user: { sub: "fixture-admin", roles: ["Admin"] } }));
+  const { DELETE } = await import("../src/app/api/cases/[id]/route.ts");
+  const { POST } = await import("../src/app/api/cases/[id]/rerun/route.ts");
+  const { SANDBOX_CLEANUP_BLOCKED_RESPONSE } = await import("../src/lib/sandbox-cleanup.ts");
+  await store.createCase(id, { kind: "image", mimeType: "image/png", note: "Synthetic local fixture", language: "es" }, Buffer.from("synthetic image"), "fixture-owner");
+  await store.openSession(id, 2);
+  await store.saveCaseLanguage(id, "es");
+  await store.saveCaseModels(id, { judge: { id: "fixture/model", effort: null } });
+  await store.recordEvents(id, [{ type: "instruction_opened", seq: 1, at: new Date().toISOString() }]);
+  await store.saveCover(id, { mimeType: "image/png", bytes: Buffer.from("synthetic cover"), generated: true });
+  const claim = await store.sourceOperationRepository.claim(id, "fixture-operation", "acquisition", 30_000);
   assert.ok(claim.owned);
-  await operations.publish(id, "old-operation", claim.owner, { old: true });
-  await operations.alias(id, "https://example.test/old", "old-source");
-  await saveCaseAuditRecord(id, "old-audit", { old: true });
-  const old = await PhaseSession.open(id, initial);
-  await old.begin("old-turn", [], "Old task");
-  old.state.sandboxId = "old-sandbox";
-  await old.save();
-  await saveSandboxBinding(id, "old-sandbox", { phase: "intake", seat: "judge", sessionKey: old.key, phaseSessionId: old.state.id, revoked: false, model: old.state.model, gatewayTools: [], expiresAt: old.state.activeTurn!.expiresAt });
-  await revokeSandboxBindings(id);
-  await finishCase(id, "failed", "Fixture failure");
+  await store.sourceOperationRepository.publish(id, "fixture-operation", claim.owner, { synthetic: true });
+  await store.sourceOperationRepository.alias(id, "https://example.test/synthetic", "fixture-source");
+  await store.saveCaseAuditRecord(id, "fixture-audit", { synthetic: true });
+  const phase = await PhaseSession.open(id, { phase: "intake", seat: "judge", channel: "preparation", model: { id: "fixture/model" }, system: "Synthetic", tools: "[]", initial: "Synthetic" });
+  await phase.begin("fixture-turn", [], "Synthetic");
+  phase.state.sandboxId = id + "-private-vm"; await phase.save();
+  await store.saveSandboxBinding(id, phase.state.sandboxId, { phase: "intake", seat: "judge", sessionKey: phase.key, phaseSessionId: phase.state.id, revoked: false, model: phase.state.model, gatewayTools: [], expiresAt: "2000-01-01T00:00:00Z" });
+  await sql.query("INSERT INTO case_aliases (old_id,case_id) VALUES ($1,$2)", [id + "-alias", id]);
 
-  let cleanups = 0;
-  const results = await Promise.all(Array.from({ length: 2 }, () => requeueCase(id, async (ids) => {
-    assert.deepEqual(ids, [id]);
-    cleanups++;
-    artifacts.clear();
-  })));
-  assert.equal(results.filter(Boolean).length, 1, "one concurrent retry wins the reset");
-  assert.equal(cleanups, 1);
-  const reset = await getCase(id);
-  assert.equal(reset?.id, id);
-  assert.equal(reset?.status, "queued");
-  assert.equal(reset?.ownerId, "fixture-owner");
-  assert.deepEqual(reset?.submission, submission);
-  assert.equal(reset?.models, undefined);
-  assert.equal(reset?.pipelineVersion, 1, "old pipeline selection was removed");
-  assert.equal(reset?.error, undefined);
-  assert.deepEqual(await getImage(id), { mimeType: "image/png", bytes: image });
-  assert.deepEqual(await getEvents(id), []);
-  assert.equal(await getCover(id), undefined);
-  assert.deepEqual(await getSourceOperations(id), []);
-  assert.equal(await operations.resolve(id, "https://example.test/old"), undefined);
-  assert.deepEqual(await getCaseAuditRecords(id), []);
-  assert.equal(await loadPhaseCheckpoint(id, old.key), undefined);
-  await assert.rejects(consumeSandboxBinding("old-sandbox", id), /sandbox_forbidden/);
-  assert.equal(artifacts.size, 0);
-
-  const keys = ["INSTRUCTION_TOOL_ORIGIN", "INSTRUCTION_SANDBOX_TEAM_ID", "INSTRUCTION_SANDBOX_PROJECT_ID", "INSTRUCTION_SANDBOX_SNAPSHOT_ID"] as const;
-  const previous = keys.map((key) => process.env[key]);
-  Object.assign(process.env, { INSTRUCTION_TOOL_ORIGIN: "https://example.test", INSTRUCTION_SANDBOX_TEAM_ID: "fixture-team", INSTRUCTION_SANDBOX_PROJECT_ID: "fixture-project", INSTRUCTION_SANDBOX_SNAPSHOT_ID: "fixture-latest-snapshot" });
-  try {
-    assert.equal((await openSession(id, () => 2)).pipelineVersion, 2);
-    const fresh = await PhaseSession.open(id, { ...initial, model: { id: "fixture/current-model" }, system: "Current system", initial: "Current canonical material" });
-    assert.notEqual(fresh.state.id, old.state.id);
-    assert.equal(fresh.state.sandboxId, undefined);
-    assert.deepEqual(fresh.state.turns, {});
-    await fresh.begin("fresh-turn", [], "Fresh task");
-    const sandbox = {
-      name: `fresh-${id}`, writeFiles: async () => {}, runCommand: async () => ({ exitCode: 0, cmdId: "fresh-call", wait: async () => ({ exitCode: 0 }) }), stop: async () => {},
-      readFileToBuffer: async () => Buffer.from(JSON.stringify({ messages: [{ role: "assistant", content: "Fresh analysis" }], text: "Fresh analysis", finishReason: "stop" })),
-    };
-    let creates = 0;
-    assert.equal(await prepareInSandbox(fresh, {
-      sandbox: {
-        create: async (params: { source: { snapshotId: string } }) => { assert.equal(params.source.snapshotId, "fixture-latest-snapshot"); creates++; return sandbox; },
-        get: async () => { throw new Error("A fresh rerun must never resume an old VM"); },
-      } as unknown as typeof Sandbox,
-      bind: saveSandboxBinding,
-    }), "Fresh analysis");
-    assert.equal(creates, 1);
-    assert.equal(fresh.state.sandboxId, sandbox.name);
-  } finally {
-    keys.forEach((key, index) => { if (previous[index] === undefined) delete process.env[key]; else process.env[key] = previous[index]; });
+  // Compare all durable processing/reference rows, not merely the public status.
+  async function snapshot(client: Pool | PoolClient = sql) {
+    const result: Record<string, unknown> = { cases: (await client.query("SELECT to_jsonb(c) AS body FROM cases c WHERE id=$1", [id])).rows };
+    for (const table of ["events", "images", "covers", "case_aliases", "case_source_operations", "case_source_aliases", "case_phase_sessions", "case_audit_records", "case_sandbox_bindings"]) {
+      result[table] = (await client.query(`SELECT to_jsonb(t) AS body FROM ${table} t WHERE case_id=$1 ORDER BY to_jsonb(t)::text`, [id])).rows;
+    }
+    return result;
   }
-  console.log("Local PostgreSQL: failed-case retry fully resets generated state, preserves ID/input/image, admits one retry and creates a fresh mocked VM from current snapshot configuration; no Blob or paid AI calls.");
+  const context = { params: Promise.resolve({ id }) };
+  const remove = () => DELETE(new Request(`https://example.test/api/cases/${id}`, { method: "DELETE", headers: { origin: "https://example.test" } }), context);
+  const rerun = () => POST(new Request(`https://example.test/api/cases/${id}/rerun`, { method: "POST", headers: { origin: "https://example.test" } }), context);
+  const artifacts = new Map([[id, "private synthetic artifact"], [id + "-alias", "private alias artifact"]]);
+  const callback = cleanup.withSandboxCleanup(async () => { external++; artifacts.clear(); });
+
+  // Real transaction lock held through terminal transition. Instrument only
+  // query entry to prove both endpoint SELECTs start before lock release.
+  for (const terminal of ["failed", "resolved"] as const) {
+    await sql.query("UPDATE cases SET status='in_session',stopped_workflow_run_id=NULL WHERE id=$1", [id]);
+    const lock = await sql.connect();
+    const started = Promise.withResolvers<void>();
+    let entries = 0;
+    const connect = Pool.prototype.connect as () => Promise<PoolClient>;
+    const hook = mock.method(Pool.prototype, "connect", async function (this: Pool, ...args: unknown[]) {
+      // Pool.query internally uses callback connect; do not intercept the
+      // independent fixture pool or change its overload contract.
+      if (this === sql) return Reflect.apply(connect, this, args);
+      const client = await connect.call(this);
+      const query = client.query, release = client.release;
+      client.query = function (this: PoolClient, ...args: unknown[]) {
+        if (typeof args[0] === "string" && args[0].startsWith("SELECT status, stopped_workflow_run_id")) {
+          if (++entries === 2) started.resolve();
+        }
+        return Reflect.apply(query, this, args);
+      } as typeof client.query;
+      client.release = function (...args: unknown[]) { client.query = query; client.release = release; return Reflect.apply(release, this, args); };
+      return client;
+    });
+    let pending: Promise<Response[]> | undefined;
+    let before: Record<string, unknown>;
+    try {
+      await lock.query("BEGIN");
+      await lock.query("SELECT id FROM cases WHERE id=$1 FOR UPDATE", [id]);
+      await lock.query("UPDATE cases SET status=$2,stopped_workflow_run_id='fixture-cancelled' WHERE id=$1", [id, terminal]);
+      before = await snapshot(lock);
+      pending = Promise.all([remove(), rerun()]);
+      await Promise.race([started.promise, pending.then(() => { throw new Error("Endpoint returned before entering the locked query"); })]);
+      await assert.rejects(sql.query("SELECT id FROM cases WHERE id=$1 FOR UPDATE NOWAIT", [id]), error => (error as { code?: string }).code === "55P03");
+      await lock.query("COMMIT");
+    } finally { await lock.query("ROLLBACK"); lock.release(); hook.mock.restore(); }
+    for (const response of await pending!) {
+      assert.equal(response.status, 409);
+      assert.deepEqual(await response.json(), SANDBOX_CLEANUP_BLOCKED_RESPONSE);
+    }
+    assert.deepEqual(await snapshot(), before!);
+    const attempts = await Promise.allSettled([
+      store.deleteCase(id, callback), store.restartCase(id, callback), store.requeueCase(id, callback),
+      callback([id, id + "-alias"]), store.deleteCase(id, async () => { external++; }),
+    ]);
+    for (const result of attempts) {
+      if (terminal === "resolved" && result.status === "fulfilled") assert.equal(result.value, false, "legacy requeue rejects nonfailed cases without effects");
+      else assert.ok(result.status === "rejected" && result.reason instanceof cleanup.SandboxCleanupBlockedError);
+    }
+    assert.deepEqual(await snapshot(), before!);
+  }
+  assert.equal(artifacts.size, 2);
+  assert.equal(external, 0);
+  console.log("PASS: guarded PostgreSQL DELETE/POST terminal races, explicit 409, callback/no-op bypass blocked, rollback and all private references/artifacts retained; zero Blob/Sandbox/provider/workflow effects.");
 } finally {
-  await finishCase(id, "failed");
-  assert.equal(await deleteCase(id, async () => {}), "deleted");
-  await cleanup.query("DELETE FROM admin_notifications WHERE case_id = $1", [id]);
-  await cleanup.end();
+  // Only synthetic rows owned by this fixture; never weaken application cleanup.
+  await sql.query("DELETE FROM cases WHERE id=$1", [id]);
+  await sql.query("DELETE FROM admin_notifications WHERE case_id=$1", [id]);
+  await sql.end();
+  mock.restoreAll();
 }

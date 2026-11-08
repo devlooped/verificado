@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
 import { Pool } from "pg";
 import { deleteCase, withCaseWriteLock } from "./store.ts";
+import { SandboxCleanupBlockedError } from "./lib/sandbox-cleanup.ts";
 
 function fakeDatabase(t: TestContext, status: string | undefined) {
   const previous = process.env.DATABASE_URL;
@@ -22,10 +23,10 @@ function fakeDatabase(t: TestContext, status: string | undefined) {
   return calls;
 }
 
-test("deletes aliases and all related blobs before committing the cascading case delete", async (t) => {
+test("delete fails closed before aliases, Blob callbacks or cascading deletion, even with a no-op callback", async (t) => {
   const calls = fakeDatabase(t, "resolved");
-  assert.equal(await deleteCase("AA-123-BB", async (ids) => { calls.push("blob"); assert.deepEqual(ids, ["AA-123-BB", "old-id"]); }), "deleted");
-  assert.deepEqual(calls, ["BEGIN", "SELECT status, stopped_workflow_run_id FROM cases WHERE id = $1 FOR UPDATE", "SELECT old_id FROM case_aliases WHERE case_id = $1", "blob", "DELETE FROM cases WHERE id = $1", "COMMIT", "release"]);
+  await assert.rejects(deleteCase("AA-123-BB", async () => { calls.push("blob"); }), SandboxCleanupBlockedError);
+  assert.deepEqual(calls, ["BEGIN", "SELECT status, stopped_workflow_run_id, continuation_generation FROM cases WHERE id = $1 FOR UPDATE", "ROLLBACK", "release"]);
 });
 
 test("does not delete active or missing cases and rolls back if blob cleanup fails", async (t) => {
@@ -39,17 +40,17 @@ test("does not delete active or missing cases and rolls back if blob cleanup fai
   }
   await t.test("failed cleanup", async (sub) => {
     const calls = fakeDatabase(sub, "failed");
-    await assert.rejects(deleteCase("AA-123-BB", async () => { throw new Error("storage failed"); }), /storage failed/);
+    await assert.rejects(deleteCase("AA-123-BB", async () => { throw new Error("must not reach storage"); }), SandboxCleanupBlockedError);
     assert.ok(calls.includes("ROLLBACK"));
     assert.ok(!calls.some((sql) => sql.startsWith("DELETE")));
   });
 });
 
-test("writes hold a shared case lock and stop if the case has been deleted", async (t) => {
+test("writes hold the exclusive fencing lock and stop if the case has been deleted", async (t) => {
   await t.test("existing", async (sub) => {
     const calls = fakeDatabase(sub, "resolved");
     assert.equal(await withCaseWriteLock("AA-123-BB", async () => { calls.push("write"); return 42; }), 42);
-    assert.deepEqual(calls, ["BEGIN", "SELECT id FROM cases WHERE id = $1 FOR KEY SHARE", "write", "COMMIT", "release"]);
+    assert.deepEqual(calls, ["BEGIN", "SELECT id, continuation_generation, workflow_run_id, status, stopped_workflow_run_id FROM cases WHERE id = $1 FOR UPDATE", "write", "COMMIT", "release"]);
   });
   await t.test("deleted", async (sub) => {
     const calls = fakeDatabase(sub, undefined);

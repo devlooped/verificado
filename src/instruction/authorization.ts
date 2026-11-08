@@ -1,9 +1,11 @@
 import type { CourtModel } from "../court/models.ts";
 import { sharedPipeline, type CourtEvent } from "../domain/court.ts";
 import type { SeatId } from "../court/turns.ts";
+import type { ContinuationWriter } from "../domain/continuation.ts";
 
 export type InstructionPhase = "intake" | "instruction" | "criticism" | "debate";
 export type SandboxBinding = {
+  writer?: ContinuationWriter;
   phase: InstructionPhase;
   seat: SeatId;
   sessionKey: string;
@@ -26,8 +28,10 @@ export function committedPhase(events: readonly CourtEvent[]): InstructionPhase 
   return "intake";
 }
 
-export function authorizeSandboxBinding(binding: SandboxBinding, context: { phase: InstructionPhase | "settling"; status: string; pipelineVersion: number; phaseSessionId?: string; activeTurnId?: string; now?: number }): void {
+export function authorizeSandboxBinding(binding: SandboxBinding, context: { phase: InstructionPhase | "settling"; status: string; pipelineVersion: number; phaseSessionId?: string; activeTurnId?: string; generation?: number; runId?: string; now?: number }): void {
   const now = context.now ?? Date.now();
+  if ((binding.writer?.generation ?? 0) !== (context.generation ?? 0) ||
+      (binding.writer && (!Number.isSafeInteger(binding.writer.generation) || binding.writer.generation < 1 || binding.writer.runId !== context.runId))) throw new Error("sandbox_forbidden");
   if (!sharedPipeline(context.pipelineVersion) || context.status !== "in_session" || binding.revoked ||
       !Number.isFinite(Date.parse(binding.expiresAt)) || Date.parse(binding.expiresAt) <= now ||
       binding.phase !== context.phase || !binding.activeTurn ||

@@ -1,4 +1,5 @@
 import { canDeleteCase, type CaseUser } from "./case-access.ts";
+import { SandboxCleanupBlockedError, SANDBOX_CLEANUP_BLOCKED_RESPONSE } from "./sandbox-cleanup.ts";
 
 type DeleteCase = (id: string) => Promise<"deleted" | "missing" | "active">;
 
@@ -15,6 +16,7 @@ export async function deleteCaseResponse(request: Request, id: string, user: Cas
     if (result === "active") return Response.json({ error: "El caso o una tarea detenida sigue en curso. Intentá de nuevo más tarde." }, { status: 409 });
     return new Response(null, { status: 204 });
   } catch (error) {
+    if (error instanceof SandboxCleanupBlockedError) return Response.json(SANDBOX_CLEANUP_BLOCKED_RESPONSE, { status: 409 });
     console.error("Case deletion failed:", error);
     return Response.json({ error: "No se pudo completar la eliminación. Algunos archivos podrían haberse borrado; intentá de nuevo." }, { status: 500 });
   }

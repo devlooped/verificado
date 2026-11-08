@@ -1,8 +1,20 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { test, type TestContext } from "node:test";
 import { Pool } from "pg";
 import { auth0 } from "../lib/auth0.ts";
 import { requestFactCheck, retryCase } from "./actions.ts";
+
+function forbidRetryEffects(t: TestContext) {
+  const unexpected = () => { throw new Error("Retry must not access storage or external services"); };
+  const mocks = [
+    t.mock.method(Pool.prototype, "query", unexpected),
+    t.mock.method(Pool.prototype, "connect", unexpected),
+    t.mock.method(globalThis, "fetch", unexpected),
+  ];
+  return () => { for (const mock of mocks) assert.equal(mock.mock.callCount(), 0); };
+}
 
 test("case requests require the verified authorized account before validating input", async (t) => {
   const form = new FormData();
@@ -29,8 +41,8 @@ test("case requests require the verified authorized account before validating in
   assert.deepEqual(await requestFactCheck({}, form), { error: "Pegá un texto de al menos 20 caracteres.", field: "text" });
 });
 
-test("retrying a case rejects unauthorized sessions before accessing storage", async (t) => {
-  const query = t.mock.method(Pool.prototype, "query", () => { throw new Error("unexpected database access"); });
+test("direct retry action calls reject unauthorized sessions with zero effects", async (t) => {
+  const assertNoEffects = forbidRetryEffects(t);
   const sessions = [
     null,
     { user: { sub: "someone", email: "other@example.com", email_verified: true } },
@@ -40,38 +52,68 @@ test("retrying a case rejects unauthorized sessions before accessing storage", a
     { user: { sub: "daniel", email: "daniel@cazzulino.com", email_verified: true } },
     { user: { sub: "user", roles: ["admin"] } },
     { user: { roles: ["Admin"] } },
+    { user: { sub: "user", roles: ["Contrib"] } },
+    { user: { sub: "user", roles: "Admin" } },
   ];
   for (const session of sessions) {
     const getSession = t.mock.method(auth0, "getSession", async () => session as Awaited<ReturnType<typeof auth0.getSession>>);
     await assert.rejects(retryCase("failed-case"), /No autorizado/);
+    const forged = new FormData();
+    forged.set("roles", "Admin");
+    forged.set("enabled", "true");
+    await assert.rejects(Reflect.apply(retryCase.bind(null, "failed-case"), null, [forged]), /No autorizado/);
     getSession.mock.restore();
   }
-  assert.equal(query.mock.callCount(), 0);
+  assertNoEffects();
 });
 
-test("an authorized retry uses the transactional reset and does not restart a resolved case", async (t) => {
-  t.mock.method(auth0, "getSession", async () => ({ user: { sub: "admin-user", roles: ["Admin"] } }) as unknown as Awaited<ReturnType<typeof auth0.getSession>>);
-  const queries: { sql: string; values?: unknown[] }[] = [];
-  t.mock.method(Pool.prototype, "query", (async () => ({ rows: [], rowCount: 0 })) as unknown as typeof Pool.prototype.query);
-  t.mock.method(Pool.prototype, "connect", (async () => ({
-    query: async (sql: string, values?: unknown[]) => {
-      queries.push({ sql, values });
-      return { rows: sql.startsWith("SELECT status") ? [{ status: "resolved" }] : [], rowCount: 0 };
-    },
-    release: () => {},
-  })) as unknown as typeof Pool.prototype.connect);
-  const originalUrl = process.env.DATABASE_URL;
-  process.env.DATABASE_URL = "postgres://example.invalid/test";
-  try {
-    await assert.rejects(retryCase("failed-case"), { digest: "NEXT_REDIRECT;replace;/c/failed-case;307;" });
-  } finally {
-    if (originalUrl === undefined) delete process.env.DATABASE_URL;
-    else process.env.DATABASE_URL = originalUrl;
+test("authorized retry is blocked even for direct POST-equivalent bound action calls", async (t) => {
+  const assertNoEffects = forbidRetryEffects(t);
+  const session = t.mock.method(auth0, "getSession", async () => ({ user: { sub: "admin-user", roles: ["Admin"] } }) as unknown as Awaited<ReturnType<typeof auth0.getSession>>);
+  const blocked = { error: "Reintentar está bloqueado: la continuación segura está desactivada. El expediente no se modificó. No se puede estimar el costo pendiente ni qué resultados podrán reutilizarse." };
+  // No UI is rendered. Invoke the exported action and its bound form signature
+  // directly, as a POST dispatch would, including untrusted extra fields.
+  for (const id of ["failed-case", "resolved-case", "active-case", "missing-case", "../invalid", ""]) {
+    assert.deepEqual(await retryCase(id), blocked);
+    const form = new FormData();
+    form.set("enabled", "true");
+    form.set("confirm", "on");
+    form.set("operation", "rerun");
+    assert.deepEqual(await Reflect.apply(retryCase.bind(null, id), null, [form]), blocked);
   }
-  assert.ok(queries.some(({ sql }) => sql === "SELECT status, stopped_workflow_run_id FROM cases WHERE id = $1 FOR UPDATE"));
-  assert.deepEqual(queries.find(({ sql }) => sql.startsWith("SELECT status"))?.values, ["failed-case"]);
-  assert.ok(queries.some(({ sql }) => sql === "ROLLBACK"));
-  assert.ok(!queries.some(({ sql }) => /^(UPDATE|DELETE)/.test(sql)));
+  assert.equal(session.mock.callCount(), 12, "each invocation independently checks the server session");
+  assertNoEffects();
+});
+
+test("an authentication failure cannot fall back to reset or continuation", async (t) => {
+  const assertNoEffects = forbidRetryEffects(t);
+  const unavailable = new Error("Session unavailable");
+  t.mock.method(auth0, "getSession", async () => { throw unavailable; });
+  await assert.rejects(retryCase("failed-case"), unavailable);
+  assertNoEffects();
+});
+
+test("retry has no effectful delegation: only session and permission calls are allowed", () => {
+  const source = readFileSync(new URL("./actions.ts", import.meta.url), "utf8");
+  const parser = createRequire(import.meta.url)("next/dist/compiled/babel/parser.js") as { parse(source: string, options: object): { program: { body: { declaration?: { id?: { name: string } } }[] } } };
+  const ast = parser.parse(source, { sourceType: "module", plugins: ["typescript"] });
+  const retry = ast.program.body.find((node) => node.declaration?.id?.name === "retryCase")?.declaration;
+  assert.ok(retry);
+  const calls: string[] = [];
+  const visit = (value: unknown) => {
+    if (!value || typeof value !== "object") return;
+    if (Array.isArray(value)) { value.forEach(visit); return; }
+    const node = value as Record<string, unknown>;
+    if (["CallExpression", "OptionalCallExpression", "NewExpression"].includes(String(node.type))) {
+      const callee = node.callee as { start: number; end: number };
+      calls.push(source.slice(callee.start, callee.end));
+    }
+    Object.values(node).forEach(visit);
+  };
+  visit(retry);
+  // Also rejects cleanup wrapper construction, workflow/reset/store helpers,
+  // independent audit writes, redirects and direct provider calls.
+  assert.deepEqual(calls, ["auth0.getSession", "isAdmin", "Error"]);
 });
 
 test("malformed and private links return form errors instead of throwing", async (t) => {

@@ -1,6 +1,6 @@
 ---
 title: Native provider research, host-collected evidence and batch source critique (pipeline 3)
-status: blocked
+status: done
 created: 2026-11-06
 summary: Analysts research with their provider's own server-side search in one call, the host fetches, matches and unifies what they cite, and each analyst then critiques the whole source index in one batch. A local eval measures it before rollout.
 ---

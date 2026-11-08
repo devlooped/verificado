@@ -2,7 +2,7 @@ import { ZodError } from "zod";
 import type { CourtEvent, Evidence, RecordedEvent, UnifiedSource } from "../domain/court.ts";
 import { canonicalUrl, COLLECTION_BATCH, proposalsOf, type Proposal } from "./proposed-urls.ts";
 import { matchQuote } from "./quote-match.ts";
-import { mapLimit, type CanonicalSource, type SourceBlock, type SourceService } from "./sources.ts";
+import { mapLimit, type SourceService } from "./sources.ts";
 
 export { COLLECTION_BATCH, proposalsOf, proposedUrls, type Proposal } from "./proposed-urls.ts";
 
@@ -54,19 +54,31 @@ export async function fetchProposedUrls(reader: SourceService, urls: readonly st
   });
 }
 
-export async function collectEvidence(events: readonly RecordedEvent[], fetched: readonly FetchedUrl[], reader: SourceService): Promise<{ events: CourtEvent[]; rejected: RejectedProposal[] }> {
+type CollectionProgress = (phase: "sources_loading" | "sources_loaded" | "matching_completed", attributes: { "sources.count": number; "proposals.count": number; "duration.ms"?: number }) => void;
+
+export async function collectEvidence(events: readonly RecordedEvent[], fetched: readonly FetchedUrl[], reader: SourceService, progress?: CollectionProgress): Promise<{ events: CourtEvent[]; rejected: RejectedProposal[] }> {
   const byUrl = new Map(fetched.map((result) => [result.url, result]));
-  const sources = new Map<string, { source: CanonicalSource; blocks: SourceBlock[] }>();
+  const proposals = proposalsOf(events);
+  const sourceIds = [...new Set(proposals.flatMap((proposal) => {
+    const url = canonicalUrl(proposal.url);
+    const sourceId = url ? byUrl.get(url)?.sourceId : undefined;
+    return sourceId ? [sourceId] : [];
+  }))];
+  const attributes = { "sources.count": sourceIds.length, "proposals.count": proposals.length };
+  const report = (phase: Parameters<CollectionProgress>[0], duration?: number) => {
+    try { progress?.(phase, { ...attributes, ...(duration === undefined ? {} : { "duration.ms": duration }) }); } catch { /* telemetry is best-effort */ }
+  };
+  let started = Date.now();
+  report("sources_loading");
+  const sources = await reader.collectionSources(sourceIds);
+  report("sources_loaded", Date.now() - started);
+  started = Date.now();
   const filed: Evidence[] = [], rejected: RejectedProposal[] = [], seen = new Set<string>();
   let next = events.filter((event) => event.type === "evidence_filed").length + 1;
-  for (const proposal of proposalsOf(events)) {
+  for (const proposal of proposals) {
     const url = canonicalUrl(proposal.url);
     const result = url ? byUrl.get(url) : undefined;
     if (!result?.sourceId) { rejected.push({ ...proposal, reason: url ? result?.error ?? "not_fetched" : "invalid_url" }); continue; }
-    if (!sources.has(result.sourceId)) {
-      const source = await reader.source(result.sourceId);
-      sources.set(result.sourceId, { source, blocks: await reader.blocks(source.document) });
-    }
     const { source, blocks } = sources.get(result.sourceId)!;
     const match = matchQuote(blocks, proposal.quote);
     if (!match) { rejected.push({ ...proposal, reason: "quote_not_found", finalUrl: source.acquisition.finalUrl }); continue; }
@@ -86,6 +98,7 @@ export async function collectEvidence(events: readonly RecordedEvent[], fetched:
     url.hash = "";
     return { id: "E" + (index + 1), title: contributions[0]!.title, url: url.href, contributions, sourceId };
   });
+  report("matching_completed", Date.now() - started);
   return { events: [...filed.map((evidence): CourtEvent => ({ type: "evidence_filed", evidence })), { type: "evidence_unified", sources: unified }], rejected };
 }
 

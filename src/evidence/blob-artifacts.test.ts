@@ -9,7 +9,7 @@ test("the R2 artifact boundary uses no-overwrite writes, accepts identical retri
   process.env.DATABASE_URL = "postgres://example.invalid/test";
   t.after(() => { if (database === undefined) delete process.env.DATABASE_URL; else process.env.DATABASE_URL = database; });
   t.mock.method(Pool.prototype, "query", (async () => ({ rows: [] })) as unknown as typeof Pool.prototype.query);
-  t.mock.method(Pool.prototype, "connect", (async () => ({ query: async (sql: string) => ({ rows: sql.startsWith("SELECT id FROM cases") ? [{ id: "fixture" }] : [] }), release: () => {} })) as unknown as typeof Pool.prototype.connect);
+  t.mock.method(Pool.prototype, "connect", (async () => ({ query: async (sql: string) => ({ rows: sql.startsWith("SELECT id, continuation_generation") ? [{ id: "fixture" }] : [] }), release: () => {} })) as unknown as typeof Pool.prototype.connect);
   const r2 = await startFakeR2();
   t.after(() => r2.close());
 

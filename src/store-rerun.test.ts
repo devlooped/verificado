@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
 import { Pool } from "pg";
 import { failResolvedCase, requeueCase, restartCase } from "./store.ts";
+import { SandboxCleanupBlockedError } from "./lib/sandbox-cleanup.ts";
 
 type Call = { sql: string; args?: unknown[] };
 function fakeDatabase(t: TestContext, status: string | undefined, missingImage = false) {
@@ -23,29 +24,18 @@ function fakeDatabase(t: TestContext, status: string | undefined, missingImage =
   return calls;
 }
 
-test("restart keeps the ID and submission, while clearing all generated state and old artifacts", async (t) => {
+test("restart preserves generated state and private references before any callback or reset", async (t) => {
   const calls = fakeDatabase(t, "resolved");
   const blobs: string[][] = [];
-  assert.equal(await restartCase("AA-123-BB", async (ids) => { blobs.push(ids); }), "queued");
-  assert.deepEqual(blobs, [["AA-123-BB", "old-id"]]);
+  await assert.rejects(restartCase("AA-123-BB", async (ids) => { blobs.push(ids); }), SandboxCleanupBlockedError);
+  assert.deepEqual(blobs, []);
   assert.deepEqual(calls.map(({ sql }) => sql), [
     "BEGIN",
-    "SELECT status, stopped_workflow_run_id FROM cases WHERE id = $1 FOR UPDATE",
+    "SELECT status, stopped_workflow_run_id, continuation_generation FROM cases WHERE id = $1 FOR UPDATE",
     "SELECT submission->>'kind' = 'image' AND NOT EXISTS (SELECT 1 FROM images WHERE case_id = $1) AS missing_image FROM cases WHERE id = $1",
-    "SELECT old_id FROM case_aliases WHERE case_id = $1",
-    "DELETE FROM events WHERE case_id = $1",
-    "DELETE FROM covers WHERE case_id = $1",
-    "DELETE FROM case_source_operations WHERE case_id = $1",
-    "DELETE FROM case_source_aliases WHERE case_id = $1",
-    "DELETE FROM case_phase_sessions WHERE case_id = $1",
-    "DELETE FROM case_audit_records WHERE case_id = $1",
-    "DELETE FROM case_sandbox_bindings WHERE case_id = $1",
-    "UPDATE cases SET created_at = $2, status = 'queued', submission = submission - 'resolvedLanguage', error = NULL, revision = revision + 1, models = NULL, pipeline_version = NULL, workflow_run_id = NULL, stopped_workflow_run_id = NULL WHERE id = $1",
-    "COMMIT",
+    "ROLLBACK",
     "release",
   ]);
-  assert.deepEqual(calls[11]?.args?.[0], "AA-123-BB");
-  assert.equal(typeof calls[11]?.args?.[1], "string");
 });
 
 test("missing or active cases cannot be reset", async (t) => {
@@ -61,20 +51,16 @@ test("missing or active cases cannot be reset", async (t) => {
   }
 });
 
-test("failed-case retry performs the same full reset as an admin rerun", async (t) => {
+test("legacy requeueCase cannot bypass the cleanup block with a no-op callback", async (t) => {
   const calls = fakeDatabase(t, "failed");
   const blobs: string[][] = [];
-  assert.equal(await requeueCase("AA-123-BB", async (ids) => { blobs.push(ids); }), true);
-  assert.deepEqual(blobs, [["AA-123-BB", "old-id"]]);
-  for (const table of ["events", "covers", "case_source_operations", "case_source_aliases", "case_phase_sessions", "case_audit_records", "case_sandbox_bindings"]) {
-    assert.ok(calls.some(({ sql }) => sql === `DELETE FROM ${table} WHERE case_id = $1`), `retry drops ${table}`);
-  }
-  assert.ok(calls.some(({ sql }) => sql.includes("models = NULL, pipeline_version = NULL")));
-  assert.ok(calls.some(({ sql }) => sql.includes("submission = submission - 'resolvedLanguage'")));
-  assert.ok(calls.some(({ sql }) => sql === "COMMIT"));
+  await assert.rejects(requeueCase("AA-123-BB", async (ids) => { blobs.push(ids); }), SandboxCleanupBlockedError);
+  assert.deepEqual(blobs, []);
+  assert.ok(!calls.some(({ sql }) => /^(DELETE|UPDATE|COMMIT)/.test(sql)));
+  assert.ok(calls.some(({ sql }) => sql === "ROLLBACK"));
 });
 
-test("failed-case retry does not reset resolved, active or missing cases", async (t) => {
+test("legacy requeueCase does not reset resolved, active or missing cases", async (t) => {
   for (const status of ["resolved", "queued", "in_session", undefined]) await t.test(String(status), async (sub) => {
     const calls = fakeDatabase(sub, status);
     let cleaned = false;
@@ -94,9 +80,9 @@ test("a missing original image rejects the rerun before deleting case data or bl
   assert.ok(!calls.some(({ sql }) => sql.startsWith("DELETE") || sql.startsWith("UPDATE")));
 });
 
-test("blob cleanup failure rolls the database transaction back before clearing case state", async (t) => {
+test("cleanup safety failure rolls back before even invoking a failing Blob callback", async (t) => {
   const calls = fakeDatabase(t, "failed");
-  await assert.rejects(restartCase("AA-123-BB", async () => { throw new Error("blob failure"); }), /blob failure/);
+  await assert.rejects(restartCase("AA-123-BB", async () => { throw new Error("must not reach Blob"); }), SandboxCleanupBlockedError);
   assert.ok(calls.some(({ sql }) => sql === "ROLLBACK"));
   assert.ok(!calls.some(({ sql }) => sql.startsWith("DELETE") || sql.startsWith("UPDATE")));
 });
@@ -108,6 +94,10 @@ test("marks only the same resolved revision as a failed run, with an admin notif
   const calls: Call[] = [];
   let rowCount = 1;
   t.mock.method(Pool.prototype, "query", (async (sql: string, args?: unknown[]) => { calls.push({ sql, args }); return { rows: [], rowCount }; }) as unknown as typeof Pool.prototype.query);
+  t.mock.method(Pool.prototype, "connect", (async () => ({
+    query: async (sql: string, args?: unknown[]) => sql.startsWith("SELECT id, continuation_generation") ? {rows:[{id:"AA-123-BB",continuation_generation:0}]} : Pool.prototype.query(sql,args),
+    release: () => {},
+  })) as unknown as typeof Pool.prototype.connect);
   assert.equal(await failResolvedCase("AA-123-BB", 4, "missing files"), true);
   const update = calls.find(({ sql }) => sql.includes("UPDATE cases SET status = 'failed'"))!;
   assert.match(update.sql, /status = 'resolved' AND revision = \$2/);

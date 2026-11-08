@@ -27,7 +27,7 @@ function fakeDatabase(t: TestContext, row?: { status: string; workflow_run_id: s
 test("starting records the run while holding the case row lock", async (t) => {
   const calls = fakeDatabase(t, { status: "queued", workflow_run_id: null });
   await startCaseWorkflow("fixture", async () => { calls.push("start"); return { runId: "run-1" }; }, async () => { throw new Error("unexpected cancel"); });
-  assert.deepEqual(calls, ["BEGIN", "SELECT status, workflow_run_id FROM cases WHERE id = $1 FOR UPDATE", "start", "UPDATE cases SET workflow_run_id = $2 WHERE id = $1", "COMMIT", "release"]);
+  assert.deepEqual(calls, ["BEGIN", "SELECT status, workflow_run_id, continuation_generation FROM cases WHERE id = $1 FOR UPDATE", "start", "UPDATE cases SET workflow_run_id = $2 WHERE id = $1", "COMMIT", "release"]);
 });
 
 test("a start that cannot be recorded cancels its newly created run", async (t) => {
@@ -55,21 +55,23 @@ test("a cancellation failure rolls back without changing case status", async (t)
   assert.ok(!calls.some((sql) => sql.startsWith("UPDATE cases")));
 });
 
-test("a stopped run cannot be reset or deleted until its executing steps finish", async (t) => {
+test("settled or cancelled known steps do not authorize reset/deletion or workflow enumeration", async (t) => {
   const calls = fakeDatabase(t, { status: "failed", workflow_run_id: "run-1", stopped_workflow_run_id: "run-1" });
   let running = true;
-  setWorld({ specVersion: 8, steps: { list: async () => ({ data: [{ status: running ? "running" : "completed" }], hasMore: false, cursor: null }) } } as unknown as Parameters<typeof setWorld>[0]);
+  let lists = 0;
+  setWorld({ specVersion: 8, steps: { list: async () => { lists++; return { data: [{ status: running ? "running" : "completed" }], hasMore: false, cursor: null }; } } } as unknown as Parameters<typeof setWorld>[0]);
   t.after(() => setWorld(undefined));
   let cleanups = 0;
   const cleanup = async () => { cleanups++; };
-  assert.equal(await restartCase("fixture", cleanup), "active");
-  assert.equal(await deleteCase("fixture", cleanup), "active");
+  await assert.rejects(restartCase("fixture", cleanup), /Sandbox cleanup blocked/);
+  await assert.rejects(deleteCase("fixture", cleanup), /Sandbox cleanup blocked/);
   assert.equal(cleanups, 0);
   assert.ok(!calls.some((sql) => sql.startsWith("DELETE")));
   running = false;
-  assert.equal(await restartCase("fixture", cleanup), "queued");
-  assert.equal(await deleteCase("fixture", cleanup), "deleted");
-  assert.equal(cleanups, 2);
+  await assert.rejects(restartCase("fixture", cleanup), /Sandbox cleanup blocked/);
+  await assert.rejects(deleteCase("fixture", cleanup), /Sandbox cleanup blocked/);
+  assert.equal(cleanups, 0);
+  assert.equal(lists, 0);
 });
 
 test("late workflow completion and failure cannot change a stopped case", async (t) => {
@@ -78,6 +80,10 @@ test("late workflow completion and failure cannot change a stopped case", async 
   t.after(() => { if (previous === undefined) delete process.env.DATABASE_URL; else process.env.DATABASE_URL = previous; });
   const calls: string[] = [];
   t.mock.method(Pool.prototype, "query", (async (sql: string) => { calls.push(sql); return { rows: [] }; }) as unknown as typeof Pool.prototype.query);
+  t.mock.method(Pool.prototype, "connect", (async () => ({
+    query: async (sql: string) => sql.startsWith("SELECT id, continuation_generation") ? {rows:[{id:"fixture",continuation_generation:0}]} : Pool.prototype.query(sql),
+    release: () => {},
+  })) as unknown as typeof Pool.prototype.connect);
   await finishCase("fixture", "resolved");
   await finishCase("fixture", "failed", "late error");
   for (const sql of calls.filter((query) => query.includes("UPDATE cases SET status"))) assert.match(sql, /stopped_workflow_run_id IS NULL/);

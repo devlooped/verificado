@@ -3,7 +3,7 @@ import test from "node:test";
 import { Pool } from "pg";
 import { contextStorage } from "../../node_modules/@workflow/core/dist/step/context-storage.js";
 import type { RecordedEvent } from "../domain/court.ts";
-import { openCase, saveEvents } from "./steps.ts";
+import { closeContinuationCase, openCase, saveContinuationEvents, saveEvents } from "./steps.ts";
 
 test("a fresh rerun opens on the latest pipeline and an opened run keeps its version", async (t) => {
   const keys = ["DATABASE_URL", "COURT_AI_MODE", "COURT_PIPELINE_VERSION"] as const;
@@ -17,6 +17,7 @@ test("a fresh rerun opens on the latest pipeline and an opened run keeps its ver
   t.mock.method(Pool.prototype, "query", (async () => ({ rows: [] })) as unknown as typeof Pool.prototype.query);
   t.mock.method(Pool.prototype, "connect", (async () => ({
     query: async (sql: string) => {
+      if (sql.startsWith("SELECT id, continuation_generation")) return { rows: [{id:"rerun",continuation_generation:0}] };
       if (sql.startsWith("SELECT id, submission FROM cases WHERE")) return { rows: fresh ? [{ id: "rerun", submission }] : [] };
       const selected = /^UPDATE cases SET pipeline_version = (\d)/.exec(sql);
       if (selected) version = Number(selected[1]);
@@ -44,6 +45,13 @@ test("persisted collection progress logs correlated counts without event bodies 
     return { rows: [] };
   }) as typeof Pool.prototype.query);
   const logs: Array<Record<string, unknown>> = [];
+  t.mock.method(Pool.prototype, "connect", (async () => ({
+    query: async (sql: string, values?: unknown[]) => {
+      if (["BEGIN","COMMIT","ROLLBACK"].includes(sql)) return {rows:[]};
+      if (sql.startsWith("SELECT id, continuation_generation")) return {rows:[{id:"CASE-TEST",continuation_generation:0}]};
+      return Pool.prototype.query(sql,values);
+    }, release: () => {},
+  })) as unknown as typeof Pool.prototype.connect);
   for (const level of ["info", "warn", "error"] as const) t.mock.method(console, level, (line: string) => { logs.push(JSON.parse(line)); });
   const at = "2026-11-07T00:00:00.000Z";
   const events: RecordedEvent[] = [
@@ -67,4 +75,15 @@ test("persisted collection progress logs correlated counts without event bodies 
   assert.ok(completed.every((line) => line.severity === "WARN" && line["events.seq"] === 4 && line["sources.failed"] === 1));
   assert.ok(logs.every((line) => line["case.id"] === "CASE-TEST" && line["case.version"] === "wrun_fixture" && line["workflow.step.attempt"] === 2));
   assert.doesNotMatch(JSON.stringify(logs), /private.example|secret|PRIVATE_CASE_CONTENT/);
+});
+
+test("new generation steps reject a supplied owner from another executing run before DB access", async () => {
+  const workflow = { workflowName: "fixture", workflowRunId: "wrun_current", workflowStartedAt: new Date(), url: "", features: { encryption: false } };
+  const step = { stepName: "fixture", stepId: "step_fixture", stepStartedAt: new Date(), attempt: 1 };
+  await contextStorage.run({workflowMetadata:workflow,stepMetadata:step,ops:[],preCompletionOps:[]},async()=>{
+    const writer={generation:1,runId:"wrun_other"};
+    await assert.rejects(saveContinuationEvents("fixture",writer,[]),/does not match executing run/);
+    await assert.rejects(closeContinuationCase("fixture",writer,"failed"),/does not match executing run/);
+    await assert.rejects(saveContinuationEvents("fixture",{generation:1,runId:"wrun_current"},[]),/atomic checkpoint and phase publication/);
+  });
 });

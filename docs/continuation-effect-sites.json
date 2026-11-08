@@ -1,0 +1,942 @@
+{
+  "scope": [
+    "src/**/*.ts(x), excluding *.test.ts",
+    "sandbox/harness/**/*.ts"
+  ],
+  "sites": [
+    {
+      "file": "sandbox/harness/agent.ts",
+      "scope": "module.onStepFinish",
+      "call": "writeFile",
+      "kind": "local-process-or-file",
+      "count": 1
+    },
+    {
+      "file": "sandbox/harness/agent.ts",
+      "scope": "module",
+      "call": "generateText",
+      "kind": "model",
+      "count": 1
+    },
+    {
+      "file": "sandbox/harness/agent.ts",
+      "scope": "module",
+      "call": "writeFile",
+      "kind": "local-process-or-file",
+      "count": 3
+    },
+    {
+      "file": "sandbox/harness/agent.ts",
+      "scope": "runShell",
+      "call": "spawn",
+      "kind": "local-process-or-file",
+      "count": 1
+    },
+    {
+      "file": "sandbox/harness/agent.ts",
+      "scope": "writeFileTool.execute",
+      "call": "writeFile",
+      "kind": "local-process-or-file",
+      "count": 1
+    },
+    {
+      "file": "sandbox/harness/instruction-agent.ts",
+      "scope": "module",
+      "call": "writeFile",
+      "kind": "local-process-or-file",
+      "count": 1
+    },
+    {
+      "file": "sandbox/harness/instruction-agent.ts",
+      "scope": "runCall.fetch",
+      "call": "fetch",
+      "kind": "network",
+      "count": 1
+    },
+    {
+      "file": "sandbox/harness/instruction-agent.ts",
+      "scope": "runCall",
+      "call": "generateText",
+      "kind": "model",
+      "count": 1
+    },
+    {
+      "file": "sandbox/harness/instruction-agent.ts",
+      "scope": "toolSet.execute",
+      "call": "fetch",
+      "kind": "network",
+      "count": 1
+    },
+    {
+      "file": "src/components/delete-case-button.tsx",
+      "scope": "remove",
+      "call": "fetch",
+      "kind": "network",
+      "count": 1
+    },
+    {
+      "file": "src/components/delete-case-button.tsx",
+      "scope": "rerun",
+      "call": "fetch",
+      "kind": "network",
+      "count": 1
+    },
+    {
+      "file": "src/components/delete-case-button.tsx",
+      "scope": "stop",
+      "call": "fetch",
+      "kind": "network",
+      "count": 1
+    },
+    {
+      "file": "src/components/user-claims-badge.tsx",
+      "scope": "refresh",
+      "call": "fetch",
+      "kind": "network",
+      "count": 1
+    },
+    {
+      "file": "src/court/cover.ts",
+      "scope": "approveCover",
+      "call": "generateText",
+      "kind": "model",
+      "count": 1
+    },
+    {
+      "file": "src/court/cover.ts",
+      "scope": "chooseWithGrok",
+      "call": "generateText",
+      "kind": "model",
+      "count": 1
+    },
+    {
+      "file": "src/court/cover.ts",
+      "scope": "generateWithGrok",
+      "call": "generateImage",
+      "kind": "model",
+      "count": 1
+    },
+    {
+      "file": "src/court/language.ts",
+      "scope": "detectLanguage",
+      "call": "generateText",
+      "kind": "model",
+      "count": 1
+    },
+    {
+      "file": "src/court/quick-play.ts",
+      "scope": "generation",
+      "call": "deps.artifacts.write",
+      "kind": "write-candidate",
+      "count": 1
+    },
+    {
+      "file": "src/court/quick-play.ts",
+      "scope": "quickAnswer.generate",
+      "call": "generateText",
+      "kind": "model",
+      "count": 1
+    },
+    {
+      "file": "src/court/quick-play.ts",
+      "scope": "quickIdentifyClaims.generate",
+      "call": "generateText",
+      "kind": "model",
+      "count": 1
+    },
+    {
+      "file": "src/court/quick-play.ts",
+      "scope": "quickTiebreak.generate",
+      "call": "generateText",
+      "kind": "model",
+      "count": 1
+    },
+    {
+      "file": "src/court/quick-play.ts",
+      "scope": "quickVote.generate",
+      "call": "generateText",
+      "kind": "model",
+      "count": 1
+    },
+    {
+      "file": "src/court/research.ts",
+      "scope": "researchTools.x_search.execute",
+      "call": "generateText",
+      "kind": "model",
+      "count": 1
+    },
+    {
+      "file": "src/court/seat.ts",
+      "scope": "runSeat",
+      "call": "generateText",
+      "kind": "model",
+      "count": 1
+    },
+    {
+      "file": "src/court/settled-play.ts",
+      "scope": "advanceSharedTurn",
+      "call": "artifacts.write",
+      "kind": "write-candidate",
+      "count": 3
+    },
+    {
+      "file": "src/court/settled-play.ts",
+      "scope": "advanceSharedTurn",
+      "call": "generateText",
+      "kind": "model",
+      "count": 3
+    },
+    {
+      "file": "src/evidence/archive.ts",
+      "scope": "archiveEvidence",
+      "call": "store.artifacts.write",
+      "kind": "write-candidate",
+      "count": 2
+    },
+    {
+      "file": "src/evidence/blob.ts",
+      "scope": "copyCaseBlobs",
+      "call": "copyObject",
+      "kind": "object-storage",
+      "count": 1
+    },
+    {
+      "file": "src/evidence/blob.ts",
+      "scope": "deleteEvidenceBlobs",
+      "call": "deleteObjects",
+      "kind": "object-storage",
+      "count": 1
+    },
+    {
+      "file": "src/evidence/blob.ts",
+      "scope": "putImmutable",
+      "call": "putObject",
+      "kind": "object-storage",
+      "count": 1
+    },
+    {
+      "file": "src/evidence/blob.ts",
+      "scope": "writeCaseTranscript",
+      "call": "putObject",
+      "kind": "object-storage",
+      "count": 1
+    },
+    {
+      "file": "src/evidence/blob.ts",
+      "scope": "writeEvidenceArchive",
+      "call": "putObject",
+      "kind": "object-storage",
+      "count": 1
+    },
+    {
+      "file": "src/evidence/blob.ts",
+      "scope": "writeEvidenceTree",
+      "call": "putObject",
+      "kind": "object-storage",
+      "count": 2
+    },
+    {
+      "file": "src/evidence/browserbase.ts",
+      "scope": "createStealthSession",
+      "call": "client.sessions.create",
+      "kind": "browser",
+      "count": 3
+    },
+    {
+      "file": "src/evidence/browserbase.ts",
+      "scope": "downloadWithBrowserbase",
+      "call": "browser.close",
+      "kind": "browser",
+      "count": 1
+    },
+    {
+      "file": "src/evidence/browserbase.ts",
+      "scope": "downloadWithBrowserbase",
+      "call": "client.sessions.update",
+      "kind": "browser",
+      "count": 1
+    },
+    {
+      "file": "src/evidence/contributions.ts",
+      "scope": "saveContributedSources",
+      "call": "deps.write",
+      "kind": "write-candidate",
+      "count": 1
+    },
+    {
+      "file": "src/evidence/describe.ts",
+      "scope": "imageDescriber",
+      "call": "generateText",
+      "kind": "model",
+      "count": 1
+    },
+    {
+      "file": "src/evidence/download.ts",
+      "scope": "directDownload",
+      "call": "response.body.cancel",
+      "kind": "workflow",
+      "count": 3
+    },
+    {
+      "file": "src/evidence/download.ts",
+      "scope": "impitFetch",
+      "call": "client.fetch",
+      "kind": "network",
+      "count": 1
+    },
+    {
+      "file": "src/evidence/download.ts",
+      "scope": "readLimited",
+      "call": "reader.cancel",
+      "kind": "workflow",
+      "count": 1
+    },
+    {
+      "file": "src/evidence/extract.ts",
+      "scope": "defaultRecognize",
+      "call": "mkdtemp",
+      "kind": "local-process-or-file",
+      "count": 1
+    },
+    {
+      "file": "src/evidence/extract.ts",
+      "scope": "defaultRecognize",
+      "call": "writeFile",
+      "kind": "local-process-or-file",
+      "count": 1
+    },
+    {
+      "file": "src/evidence/extract.ts",
+      "scope": "execFileText",
+      "call": "spawn",
+      "kind": "local-process-or-file",
+      "count": 1
+    },
+    {
+      "file": "src/evidence/prompt-translation.ts",
+      "scope": "promptTranslator",
+      "call": "generateText",
+      "kind": "model",
+      "count": 1
+    },
+    {
+      "file": "src/evidence/r2.ts",
+      "scope": "send",
+      "call": "fetch",
+      "kind": "network",
+      "count": 1
+    },
+    {
+      "file": "src/evidence/sandbox.ts",
+      "scope": "runEvidenceStep",
+      "call": "Sandbox.create",
+      "kind": "sandbox",
+      "count": 1
+    },
+    {
+      "file": "src/evidence/sandbox.ts",
+      "scope": "runEvidenceStep",
+      "call": "sandbox.readFileToBuffer",
+      "kind": "sandbox",
+      "count": 4
+    },
+    {
+      "file": "src/evidence/sandbox.ts",
+      "scope": "runEvidenceStep",
+      "call": "sandbox.runCommand",
+      "kind": "sandbox",
+      "count": 1
+    },
+    {
+      "file": "src/evidence/sandbox.ts",
+      "scope": "runEvidenceStep",
+      "call": "sandbox.stop",
+      "kind": "sandbox",
+      "count": 1
+    },
+    {
+      "file": "src/evidence/sandbox.ts",
+      "scope": "runEvidenceStep",
+      "call": "sandbox.writeFiles",
+      "kind": "sandbox",
+      "count": 1
+    },
+    {
+      "file": "src/evidence/settled.ts",
+      "scope": "settleEvidence",
+      "call": "artifacts.write",
+      "kind": "write-candidate",
+      "count": 2
+    },
+    {
+      "file": "src/evidence/translate.ts",
+      "scope": "languageVerifierFor",
+      "call": "generateText",
+      "kind": "model",
+      "count": 1
+    },
+    {
+      "file": "src/evidence/translate.ts",
+      "scope": "translate",
+      "call": "generateText",
+      "kind": "model",
+      "count": 1
+    },
+    {
+      "file": "src/instruction/intake.ts",
+      "scope": "collectInstruction",
+      "call": "deps.artifacts.write",
+      "kind": "write-candidate",
+      "count": 4
+    },
+    {
+      "file": "src/instruction/preparation.ts",
+      "scope": "advancePreparation",
+      "call": ".readFileToBuffer",
+      "kind": "sandbox",
+      "count": 1
+    },
+    {
+      "file": "src/instruction/preparation.ts",
+      "scope": "advancePreparation",
+      "call": "sandbox.getCommand",
+      "kind": "sandbox",
+      "count": 1
+    },
+    {
+      "file": "src/instruction/preparation.ts",
+      "scope": "advancePreparation",
+      "call": "sandbox.runCommand",
+      "kind": "sandbox",
+      "count": 2
+    },
+    {
+      "file": "src/instruction/preparation.ts",
+      "scope": "advancePreparation",
+      "call": "sandbox.writeFiles",
+      "kind": "sandbox",
+      "count": 1
+    },
+    {
+      "file": "src/instruction/preparation.ts",
+      "scope": "openSandbox",
+      "call": "deps.sandbox.create",
+      "kind": "sandbox",
+      "count": 1
+    },
+    {
+      "file": "src/instruction/preparation.ts",
+      "scope": "openSandbox",
+      "call": "deps.sandbox.get",
+      "kind": "sandbox",
+      "count": 1
+    },
+    {
+      "file": "src/instruction/preparation.ts",
+      "scope": "openSandbox",
+      "call": "sandbox.update",
+      "kind": "sandbox",
+      "count": 1
+    },
+    {
+      "file": "src/instruction/preparation.ts",
+      "scope": "openSandbox",
+      "call": "sandbox.writeFiles",
+      "kind": "sandbox",
+      "count": 1
+    },
+    {
+      "file": "src/instruction/preparation.ts",
+      "scope": "stopSandbox",
+      "call": "deps.sandbox.get",
+      "kind": "sandbox",
+      "count": 1
+    },
+    {
+      "file": "src/instruction/preparation.ts",
+      "scope": "stopSandbox",
+      "call": "sandbox.stop",
+      "kind": "sandbox",
+      "count": 1
+    },
+    {
+      "file": "src/instruction/preparation.ts",
+      "scope": "stopSandbox",
+      "call": "sandbox.update",
+      "kind": "sandbox",
+      "count": 1
+    },
+    {
+      "file": "src/instruction/proposed-urls.ts",
+      "scope": "collectProposedBatches",
+      "call": "fetch",
+      "kind": "network",
+      "count": 1
+    },
+    {
+      "file": "src/instruction/proxy.ts",
+      "scope": "boundedJson",
+      "call": "reader.cancel",
+      "kind": "workflow",
+      "count": 1
+    },
+    {
+      "file": "src/instruction/proxy.ts",
+      "scope": "forwardGatewayGeneration",
+      "call": "fetch",
+      "kind": "network",
+      "count": 1
+    },
+    {
+      "file": "src/instruction/proxy.ts",
+      "scope": "generation",
+      "call": "deps.artifacts.write",
+      "kind": "write-candidate",
+      "count": 1
+    },
+    {
+      "file": "src/instruction/research.ts",
+      "scope": "discover",
+      "call": "artifacts.write",
+      "kind": "write-candidate",
+      "count": 1
+    },
+    {
+      "file": "src/instruction/research.ts",
+      "scope": "researchWorker",
+      "call": "generateText",
+      "kind": "model",
+      "count": 1
+    },
+    {
+      "file": "src/instruction/sources.ts",
+      "scope": "SourceService.inspect",
+      "call": ".deps.artifacts.write",
+      "kind": "write-candidate",
+      "count": 1
+    },
+    {
+      "file": "src/instruction/sources.ts",
+      "scope": "SourceService.normalize",
+      "call": ".deps.artifacts.write",
+      "kind": "write-candidate",
+      "count": 1
+    },
+    {
+      "file": "src/instruction/sources.ts",
+      "scope": "SourceService.read",
+      "call": ".deps.artifacts.write",
+      "kind": "write-candidate",
+      "count": 2
+    },
+    {
+      "file": "src/instruction/sources.ts",
+      "scope": "SourceService.translated",
+      "call": ".deps.artifacts.write",
+      "kind": "write-candidate",
+      "count": 1
+    },
+    {
+      "file": "src/instruction/sources.ts",
+      "scope": "SourceService.writeDocument",
+      "call": ".deps.artifacts.write",
+      "kind": "write-candidate",
+      "count": 1
+    },
+    {
+      "file": "src/instruction/tools.ts",
+      "scope": "executeSourceTool",
+      "call": "artifacts.write",
+      "kind": "write-candidate",
+      "count": 1
+    },
+    {
+      "file": "src/lib/case-workflow.ts",
+      "scope": "cancelCaseRun",
+      "call": "run.cancel",
+      "kind": "workflow",
+      "count": 1
+    },
+    {
+      "file": "src/lib/case-workflow.ts",
+      "scope": "startCourtSession",
+      "call": "start",
+      "kind": "workflow",
+      "count": 1
+    },
+    {
+      "file": "src/lib/continuation-start.ts",
+      "scope": "reconcileContinuationStart",
+      "call": "start",
+      "kind": "workflow",
+      "count": 1
+    },
+    {
+      "file": "src/lib/gateway-catalog.ts",
+      "scope": "fetchGatewayModels",
+      "call": "fetch",
+      "kind": "network",
+      "count": 1
+    },
+    {
+      "file": "src/lib/stop-case-response.ts",
+      "scope": "stopCaseResponse",
+      "call": "stop",
+      "kind": "sandbox",
+      "count": 1
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "assertCaseWriter",
+      "call": "client.query",
+      "kind": "sql-write-or-lock",
+      "count": 1
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "changeOperation",
+      "call": "client.query",
+      "kind": "sql-write-or-lock",
+      "count": 4
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "consumeSandboxBinding",
+      "call": "client.query",
+      "kind": "sql-write-or-lock",
+      "count": 2
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "continuationAudit",
+      "call": "client.query",
+      "kind": "sql-write-or-lock",
+      "count": 1
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "continuationStartRepository.claim",
+      "call": "client.query",
+      "kind": "sql-write-or-lock",
+      "count": 1
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "continuationStartRepository.observe",
+      "call": "client.query",
+      "kind": "sql-write-or-lock",
+      "count": 1
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "continuationStartRepository.reconcile",
+      "call": "client.query",
+      "kind": "sql-write-or-lock",
+      "count": 2
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "createCase",
+      "call": "client.query",
+      "kind": "sql-write-or-lock",
+      "count": 2
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "db",
+      "call": "p.query",
+      "kind": "sql-write-or-lock",
+      "count": 2
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "deleteAdminNotification",
+      "call": ".query",
+      "kind": "sql-write-or-lock",
+      "count": 1
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "deleteCase",
+      "call": "client.query",
+      "kind": "sql-write-or-lock",
+      "count": 2
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "failResolvedCase",
+      "call": "client.query",
+      "kind": "sql-write-or-lock",
+      "count": 1
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "finishCase",
+      "call": "client.query",
+      "kind": "sql-write-or-lock",
+      "count": 3
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "loadContinuationPhaseSnapshot",
+      "call": "client.query",
+      "kind": "sql-write-or-lock",
+      "count": 1
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "markAdminNotificationsRead",
+      "call": ".query",
+      "kind": "sql-write-or-lock",
+      "count": 1
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "openSession",
+      "call": "client.query",
+      "kind": "sql-write-or-lock",
+      "count": 4
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "promptTranslations.save",
+      "call": ".query",
+      "kind": "sql-write-or-lock",
+      "count": 1
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "publishContinuationCheckpoint",
+      "call": "client.query",
+      "kind": "sql-write-or-lock",
+      "count": 3
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "recordBlockedContinuationReservation",
+      "call": "client.query",
+      "kind": "sql-write-or-lock",
+      "count": 4
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "recordCaseToolActivity",
+      "call": "client.query",
+      "kind": "sql-write-or-lock",
+      "count": 1
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "recordContinuationEvents",
+      "call": "client.query",
+      "kind": "sql-write-or-lock",
+      "count": 1
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "recordEvents",
+      "call": "client.query",
+      "kind": "sql-write-or-lock",
+      "count": 1
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "recordSnapshotHealth",
+      "call": ".query",
+      "kind": "sql-write-or-lock",
+      "count": 1
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "registerContinuationRun",
+      "call": "client.query",
+      "kind": "sql-write-or-lock",
+      "count": 1
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "renameCase",
+      "call": "client.query",
+      "kind": "sql-write-or-lock",
+      "count": 8
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "restartCase",
+      "call": "client.query",
+      "kind": "sql-write-or-lock",
+      "count": 5
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "retainContinuationPhaseSnapshot",
+      "call": "client.query",
+      "kind": "sql-write-or-lock",
+      "count": 3
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "revokeSandboxBindings",
+      "call": "client.query",
+      "kind": "sql-write-or-lock",
+      "count": 1
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "saveCaseAuditRecord",
+      "call": "client.query",
+      "kind": "sql-write-or-lock",
+      "count": 1
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "saveCaseLanguage",
+      "call": "client.query",
+      "kind": "sql-write-or-lock",
+      "count": 1
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "saveCaseModels",
+      "call": "client.query",
+      "kind": "sql-write-or-lock",
+      "count": 1
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "saveCover",
+      "call": "client.query",
+      "kind": "sql-write-or-lock",
+      "count": 1
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "saveModelSettings",
+      "call": "client.query",
+      "kind": "sql-write-or-lock",
+      "count": 2
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "savePhaseCheckpoint",
+      "call": "client.query",
+      "kind": "sql-write-or-lock",
+      "count": 2
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "saveSandboxBinding",
+      "call": "client.query",
+      "kind": "sql-write-or-lock",
+      "count": 1
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "sourceOperationRepositoryFor.alias",
+      "call": "client.query",
+      "kind": "sql-write-or-lock",
+      "count": 1
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "sourceOperationRepositoryFor.get",
+      "call": "client.query",
+      "kind": "sql-write-or-lock",
+      "count": 2
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "startCaseWorkflow",
+      "call": "client.query",
+      "kind": "sql-write-or-lock",
+      "count": 2
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "startCaseWorkflow",
+      "call": "start",
+      "kind": "workflow",
+      "count": 1
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "stopCaseWorkflow",
+      "call": "client.query",
+      "kind": "sql-write-or-lock",
+      "count": 2
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "withCaseWriteLock",
+      "call": "write",
+      "kind": "write-candidate",
+      "count": 1
+    },
+    {
+      "file": "src/store.ts",
+      "scope": "withContinuationReservation",
+      "call": "client.query",
+      "kind": "sql-write-or-lock",
+      "count": 2
+    }
+  ],
+  "steps": [
+    {
+      "file": "src/evidence/sandbox.ts",
+      "steps": [
+        "runEvidenceStep"
+      ]
+    },
+    {
+      "file": "src/workflows/court-session.ts",
+      "steps": [
+        "advanceShared",
+        "answerQuick",
+        "archive",
+        "collect",
+        "collectProposals",
+        "collectShared",
+        "collectSources",
+        "configuredModels",
+        "determineLanguage",
+        "disposeSandboxes",
+        "fetchProposals",
+        "identifyQuick",
+        "illustrate",
+        "play",
+        "revokeShared",
+        "settleShared",
+        "tiebreakQuick",
+        "translateContributions",
+        "translatePrompts",
+        "voteQuick"
+      ]
+    },
+    {
+      "file": "src/workflows/steps.ts",
+      "steps": [
+        "closeCase",
+        "closeContinuationCase",
+        "openCase",
+        "registerContinuationCaseRun",
+        "saveContinuationEvents",
+        "saveEvents"
+      ]
+    }
+  ],
+  "turnKinds": [
+    "closing",
+    "content_tiebreak",
+    "content_vote",
+    "instruction",
+    "intake",
+    "objection",
+    "reply",
+    "ruling",
+    "source_review",
+    "statement",
+    "summary",
+    "tiebreak",
+    "unification"
+  ]
+}

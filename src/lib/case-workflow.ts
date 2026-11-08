@@ -1,6 +1,7 @@
 import { getRun, start } from "workflow/api";
 import { startCaseWorkflow } from "../store.ts";
 import { courtSession } from "../workflows/court-session.ts";
+import { requireContinuationEnabled } from "../domain/continuation.ts";
 
 export async function cancelCaseRun(runId: string): Promise<void> {
   const run = getRun(runId);
@@ -14,4 +15,10 @@ export async function cancelCaseRun(runId: string): Promise<void> {
 
 export async function startCourtSession(caseId: string, latestPipeline = false): Promise<void> {
   await startCaseWorkflow(caseId, () => start(courtSession, latestPipeline ? [caseId, true] : [caseId]), cancelCaseRun);
+}
+
+// No live implementation/fallback until the remaining safety gates are proved.
+// In particular, never route this to startCourtSession or a destructive reset.
+export async function startCourtContinuation(_caseId: string): Promise<void> {
+  requireContinuationEnabled();
 }

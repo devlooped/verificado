@@ -9,13 +9,19 @@ export interface Operation {
   expiresAt?: string;
   result?: unknown;
   error?: string;
+  inputHash?: string;
+  // Exact canonical input, not an artifact name or a hash-only receipt.
+  inputJson?: string;
+  writer?: { generation: number; runId: string };
   recoveries: Array<{ at: string; reason: string }>;
 }
 
 export type OperationClaim = { owned: true; operation: Operation; owner: string } | { owned: false; operation: Operation };
 
 export interface OperationRepository {
-  claim(caseId: string, key: string, stage: string, leaseMs: number): Promise<OperationClaim>;
+  // Explicit scope is a blocking signal, never evidence of authorization.
+  readonly writer?: { generation: number; runId: string };
+  claim(caseId: string, key: string, stage: string, leaseMs: number, inputHash?: string, input?: unknown): Promise<OperationClaim>;
   get(caseId: string, key: string): Promise<Operation | undefined>;
   publish(caseId: string, key: string, owner: string, result: unknown): Promise<void>;
   fail(caseId: string, key: string, owner: string, error: string, uncertain: boolean): Promise<void>;
@@ -41,12 +47,13 @@ export class MemoryOperationRepository implements OperationRepository {
     }
     return operation;
   }
-  async claim(caseId: string, key: string, stage: string, leaseMs: number): Promise<OperationClaim> {
+  async claim(caseId: string, key: string, stage: string, leaseMs: number, inputHash?: string): Promise<OperationClaim> {
     let operation = this.current(caseId, key);
     if (!operation) {
-      operation = { key, stage, status: "pending", at: new Date(this.now()).toISOString(), recoveries: [] };
+      operation = { key, stage, status: "pending", at: new Date(this.now()).toISOString(), recoveries: [], ...(inputHash ? {inputHash} : {}) };
       this.operations.set(this.id(caseId, key), operation);
     }
+    if(operation.stage !== stage || (inputHash && operation.inputHash !== inputHash)) throw new Error("Source operation input or stage mismatch");
     if (operation.status !== "pending") return { owned: false, operation: structuredClone(operation) };
     const owner = String(++this.serial);
     Object.assign(operation, { status: "running", owner, expiresAt: new Date(this.now() + leaseMs).toISOString() });

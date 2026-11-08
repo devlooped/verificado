@@ -1,8 +1,9 @@
 {
   "mcpServers": {
     "vercel": {
-      "url": "https://mcp.vercel.com",
-      "type": "http"
+      "type": "stdio",
+      "command": "node",
+      "args": ["C:/Code/grokeado/.alta/mcp/vercel-mcp-proxy.mjs"]
     }
   }
 }

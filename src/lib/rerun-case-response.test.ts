@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { rerunCaseResponse } from "./rerun-case-response.ts";
+import { SandboxCleanupBlockedError, SANDBOX_CLEANUP_BLOCKED_RESPONSE } from "./sandbox-cleanup.ts";
 
 const admin = { sub: "admin-user", roles: ["Admin"] };
 const request = (origin = "https://example.test") => new Request("https://example.test/api/cases/AA-123-BB/rerun", { method: "POST", headers: { origin } });
@@ -51,4 +52,13 @@ test("a workflow start failure leaves the existing case visibly failed", async (
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { id: "AA-123-BB" });
   assert.deepEqual(calls.at(-1), ["finish", "AA-123-BB", "failed", "No se pudo iniciar la sesión."]);
+});
+
+test("a cleanup safety block reports conflict without start or failure mutation", async () => {
+  const { calls, deps } = dependencies();
+  deps.restartCase = async () => { throw new SandboxCleanupBlockedError(); };
+  const response = await rerunCaseResponse(request(), "AA-123-BB", admin, deps);
+  assert.equal(response.status, 409);
+  assert.deepEqual(await response.json(), SANDBOX_CLEANUP_BLOCKED_RESPONSE);
+  assert.deepEqual(calls, []);
 });

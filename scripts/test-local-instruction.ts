@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import nextEnv from "@next/env";
+import { Pool } from "pg";
 import { requireLocalDatabase } from "../src/lib/local-database.ts";
 import { consumeSandboxBinding, createCase, deleteCase, finishCase, getCase, loadPhaseCheckpoint, openSession, recordEvents, renameCase, revokeSandboxBindings, savePhaseCheckpoint, saveSandboxBinding, sourceOperationRepository as operations } from "../src/store.ts";
 import type { SandboxBinding } from "../src/instruction/authorization.ts";
@@ -8,7 +9,7 @@ import { MemoryArtifactStore } from "../src/evidence/artifacts.ts";
 import { extractSource, SourceService } from "../src/instruction/sources.ts";
 
 nextEnv.loadEnvConfig(process.cwd(), true);
-requireLocalDatabase();
+const cleanup = new Pool({ connectionString: requireLocalDatabase(), connectionTimeoutMillis: 5000 });
 const id = `fixture-instruction-${randomUUID()}`;
 const renamed = `${id}-renamed`;
 await createCase(id, { kind: "text", text: "Sanitized local-only instruction fixture." });
@@ -31,7 +32,8 @@ try {
     assert.equal((await openSession(legacyId, 2)).pipelineVersion, 1, "normal deployment cannot change an already selected legacy case");
   } finally {
     await finishCase(legacyId, "failed");
-    assert.equal(await deleteCase(legacyId, async () => {}), "deleted");
+    await assert.rejects(deleteCase(legacyId, async () => {}), /Sandbox cleanup blocked/);
+    await cleanup.query("DELETE FROM cases WHERE id=$1", [legacyId]);
   }
   const nativeId = `${id}-native`;
   await createCase(nativeId, { kind: "text", text: "Sanitized local-only native research fixture." });
@@ -41,7 +43,8 @@ try {
     assert.equal((await openSession(nativeId, 2)).pipelineVersion, 3, "rollback cannot move a pipeline 3 case back to pipeline 2");
   } finally {
     await finishCase(nativeId, "failed");
-    assert.equal(await deleteCase(nativeId, async () => {}), "deleted");
+    await assert.rejects(deleteCase(nativeId, async () => {}), /Sandbox cleanup blocked/);
+    await cleanup.query("DELETE FROM cases WHERE id=$1", [nativeId]);
   }
   const now = new Date().toISOString();
   await recordEvents(id, [{ type: "instruction_opened", seq: 1, at: now }]);
@@ -98,9 +101,12 @@ try {
   assert.equal((await getCase(renamed))?.pipelineVersion, 2);
 } finally {
   await finishCase(current, "failed");
-  assert.equal(await deleteCase(current, async () => {}), "deleted");
+  await assert.rejects(deleteCase(current, async () => {}), /Sandbox cleanup blocked/);
+  // Delete only this script's synthetic fixture; no application bypass.
+  await cleanup.query("DELETE FROM cases WHERE id=$1", [current]);
+  await cleanup.end();
 }
 assert.equal(await operations.get(current, "fixture-acquisition"), undefined);
 assert.equal(await operations.resolve(current, "https://example.test/"), undefined);
 assert.equal(await loadPhaseCheckpoint(current, "debate:grok:decision"), undefined);
-console.log("Local PostgreSQL: sandbox case/phase/budget/revocation checks, ownership, publication reuse, checkpoint CAS, case-ID regeneration, and cascading deletion verified; no Blob or AI calls.");
+console.log("Local PostgreSQL: sandbox case/phase/budget/revocation checks, ownership, publication reuse, checkpoint CAS and case-ID regeneration; application deletion blocked, synthetic fixture cascades verified; no Blob or AI calls.");

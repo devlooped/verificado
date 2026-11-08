@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { canDeleteCase } from "./case-access.ts";
 import { deleteCaseResponse } from "./delete-case-response.ts";
+import { SandboxCleanupBlockedError, SANDBOX_CLEANUP_BLOCKED_RESPONSE } from "./sandbox-cleanup.ts";
 
 const admin = { sub: "user", roles: ["reader", "Admin"] };
 const request = (origin = "https://example.test") => new Request("https://example.test/api/cases/AA-123-BB", { method: "DELETE", headers: { origin } });
@@ -31,4 +32,10 @@ test("the API reports deleted, missing, active and incomplete deletions", async 
     assert.equal(failed.status, 500);
     assert.match((await failed.json()).error, /intentá de nuevo/);
   } finally { console.error = original; }
+});
+
+test("a cleanup safety block is an explicit conflict, never a success or a partial-deletion claim", async () => {
+  const response = await deleteCaseResponse(request(), "AA-123-BB", admin, async () => { throw new SandboxCleanupBlockedError(); });
+  assert.equal(response.status, 409);
+  assert.deepEqual(await response.json(), SANDBOX_CLEANUP_BLOCKED_RESPONSE);
 });

@@ -10,7 +10,7 @@ test("stores and locates the public ZIP separately from the evidence tree in R2"
   t.after(() => { if (database === undefined) delete process.env.DATABASE_URL; else process.env.DATABASE_URL = database; });
   t.mock.method(Pool.prototype, "query", (async () => ({ rows: [] })) as unknown as typeof Pool.prototype.query);
   t.mock.method(Pool.prototype, "connect", (async () => ({
-    query: async (sql: string) => ({ rows: sql.startsWith("SELECT id FROM cases") ? [{ id: "case 1" }] : [] }),
+    query: async (sql: string) => ({ rows: sql.startsWith("SELECT id, continuation_generation") ? [{ id: "case 1" }] : [] }),
     release: () => {},
   })) as unknown as typeof Pool.prototype.connect);
   const r2 = await startFakeR2();

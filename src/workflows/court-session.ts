@@ -30,7 +30,7 @@ import { createMockSeat } from "../court/mock.ts";
 import { advanceSharedTurn } from "../court/settled-play.ts";
 import { settleEvidence } from "../evidence/settled.ts";
 import { caseSourceService } from "../instruction/proxy.ts";
-import { deleteCaseSandboxes } from "../instruction/preparation.ts";
+import { deleteCaseSandboxes, SandboxCleanupBlockedError } from "../instruction/preparation.ts";
 import { caseLog, errorFields, observeCaseStep } from "../lib/case-telemetry.ts";
 import { sha256 } from "../evidence/validate.ts";
 
@@ -138,7 +138,9 @@ async function collectProposals(caseId: string, language: string, events: readon
   return observeCaseStep(caseId, "file_proposals", { "sources.count": fetched.length }, async () => {
     const stored = await getCase(caseId);
     if (!stored) throw new Error("Shared case unavailable");
-    const collected = await collectEvidence(events, fetched, collectionReader(caseId, language, simulated, stored));
+    const collected = await collectEvidence(events, fetched, collectionReader(caseId, language, simulated, stored), (phase, attributes) => {
+      caseLog(caseId, "info", `case.proposals.${phase}`, attributes);
+    });
     caseLog(caseId, collected.rejected.length ? "warn" : "info", "case.proposals.filed", { "proposals.rejected": collected.rejected.length, "evidence.filed": collected.events.filter((event) => event.type === "evidence_filed").length });
     if (!simulated) for (const proposal of collected.rejected) { const record = rejectionRecord(proposal); await saveCaseAuditRecord(caseId, record.id, record); }
     return collected.events;
@@ -162,13 +164,13 @@ async function revokeShared(caseId: string) {
   await observeCaseStep(caseId, "revoke_sandboxes", {}, () => revokeSandboxBindings(caseId));
 }
 
-// Case files are in storage by now; the VMs and their snapshots are not needed.
-// Never fail a case over cleanup: snapshot retention and expiry bound the rest.
+// Preserve the legacy step sequence, but never infer resource release from
+// files in storage or a failed/closing case. Cleanup blocks without proof.
 async function disposeSandboxes(caseId: string) {
   "use step";
   await observeCaseStep(caseId, "dispose_sandboxes", {}, async () => {
     try { await deleteCaseSandboxes(caseId); }
-    catch (error) { caseLog(caseId, "warn", "case.sandboxes.cleanup_failed", errorFields(error)); }
+    catch (error) { caseLog(caseId, "warn", error instanceof SandboxCleanupBlockedError ? "case.sandboxes.cleanup_blocked" : "case.sandboxes.cleanup_failed", errorFields(error)); }
   });
 }
 
@@ -389,7 +391,8 @@ export async function courtSession(caseId: string, latestPipeline = false): Prom
     if (shared) {
       try { await revokeShared(caseId); }
       catch { /* revokeShared logs its own error; cleanup must not hide the failure. */ }
-      await disposeSandboxes(caseId);
+      try { await disposeSandboxes(caseId); }
+      catch { /* A failed cleanup step must not replace the original workflow error. */ }
     }
     await closeCase(caseId, "failed", describeError(err));
     throw err;
