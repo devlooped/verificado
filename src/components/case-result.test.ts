@@ -451,6 +451,54 @@ test("a Quick majority summary is visible without expanding the individual votes
   assert.ok(!document.querySelector("figure details")!.hasAttribute("open"));
 });
 
+test("a Quick tie displays the recorded moderator reasoning as the summary", () => {
+  const quick: CaseRecord = { ...c, submission: { kind: "text", text: "Una afirmación.", check: "quick" } };
+  const input: CourtEvent[] = [
+    ...COUNSEL.map((by, i): CourtEvent => ({ type: "content_vote", by, verdict: i < 2 ? "falso" : "enganoso", rationale: "Voto de " + by })),
+    { type: "content_judgment", verdict: "enganoso", method: "judge", reasoning: "El contexto cambia el sentido." },
+    { type: "session_closed" },
+  ];
+  const { document } = parseHTML(render(input, quick));
+  const summary = document.querySelector('[aria-labelledby="case-summary-title"]')!;
+  assert.equal(document.querySelector("[data-case-overview]")?.nextElementSibling, summary);
+  assert.match(summary.textContent, /Por el moderador/);
+  assert.match(summary.textContent, /El contexto cambia el sentido\./);
+  assert.ok(!document.querySelector("figure details")!.hasAttribute("open"));
+});
+
+test("Quick summaries distinguish majority results from claim and content tie-breaks", () => {
+  const quick: CaseRecord = { ...c, submission: { ...c.submission, check: "quick", identifyClaims: true } };
+  const input: CourtEvent[] = [
+    ...events.filter((e) => e.type !== "case_summary"),
+    { type: "content_judgment", verdict: "enganoso", method: "judge", reasoning: "El contenido pierde contexto." },
+    { type: "case_summary", text: "La mayoría decidió que A1 es falsa." },
+  ];
+  const { document } = parseHTML(render(input, quick));
+  const summary = document.querySelector('[aria-labelledby="case-summary-title"]')!;
+  assert.match(summary.textContent, /La mayoría decidió que A1 es falsa/);
+  assert.match(summary.textContent, /Afirmación A2: El expediente es insuficiente/);
+  assert.match(summary.textContent, /Contenido completo: El contenido pierde contexto/);
+  assert.doesNotMatch(summary.textContent, /Afirmación A1:/);
+
+  const allTies = input.filter((e) => e.type !== "case_summary");
+  const tieSummary = parseHTML(render(allTies, quick)).document.querySelector('[aria-labelledby="case-summary-title"]')!;
+  assert.match(tieSummary.textContent, /Afirmación A2: El expediente es insuficiente/);
+  assert.match(tieSummary.textContent, /Contenido completo: El contenido pierde contexto/);
+});
+
+test("a resolved historical Quick case without recorded moderator text says so", () => {
+  const quick: CaseRecord = { ...c, submission: { kind: "text", text: "Una afirmación.", check: "quick" } };
+  const input: CourtEvent[] = [
+    { type: "content_judgment", verdict: "falso", method: "consensus", reasoning: "" },
+    { type: "session_closed" },
+  ];
+  const { document } = parseHTML(render(input, quick));
+  const summary = document.querySelector('[aria-labelledby="case-summary-title"]')!;
+  assert.match(summary.textContent, /No hay resumen del moderador registrado/);
+  assert.doesNotMatch(summary.textContent, /Por el moderador/);
+  assert.ok(!parseHTML(render([{ type: "dismissed", reason: "Sin afirmaciones." }], quick)).document.querySelector('[aria-labelledby="case-summary-title"]'));
+});
+
 test("quick content chips distinguish absent votes from recorded no corresponde votes", () => {
   const input: CourtEvent[] = [
     { type: "content_vote", by: "grok", verdict: null, rationale: "No corresponde." },

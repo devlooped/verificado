@@ -190,6 +190,13 @@ export function CaseResult({ c, view, events = [], models = seatModels(c, events
   const citations: Citations = { caseId: c.id, refs: citationRefs(events, view) };
   const outcome = caseOutcome(view);
   const content = contentOutcome(view);
+  const quick = checkType(c.submission) === "quick";
+  const tieBreaks = quick ? [
+    ...view.claims.flatMap((claim) => claim.judgment?.method === "judge" && claim.judgment.reasoning.trim()
+      ? [{ label: "Afirmación " + claim.id, text: claim.judgment.reasoning }] : []),
+    ...(view.contentJudgment?.method === "judge" && view.contentJudgment.reasoning.trim()
+      ? [{ label: view.claims.length ? "Contenido completo" : "", text: view.contentJudgment.reasoning }] : []),
+  ] : [];
   const combinedClaim = !view.dismissal && c.submission.kind === "text" && view.claims.length === 1 && bare(c.submission.text) === bare(view.claims[0]!.text) ? view.claims[0] : undefined;
   return (
     <>
@@ -238,11 +245,13 @@ export function CaseResult({ c, view, events = [], models = seatModels(c, events
           </section>
         )}
       </div>
-      {!view.dismissal && view.summary && (
+      {!view.dismissal && (view.summary || tieBreaks.length > 0 || (quick && c.status === "resolved")) && (
         <section aria-labelledby="case-summary-title" className="mt-8 rule-double pt-5">
           <h2 id="case-summary-title" className="font-display text-3xl">Resumen del caso</h2>
-          <p className="mt-1 text-xs text-ink-soft">Por el moderador</p>
-          <p className="mt-3 whitespace-pre-line leading-relaxed"><Cited text={view.summary} ctx={citations} /></p>
+          {(view.summary || tieBreaks.length > 0) && <p className="mt-1 text-xs text-ink-soft">Por el moderador</p>}
+          {view.summary && <p className="mt-3 whitespace-pre-line leading-relaxed"><Cited text={view.summary} ctx={citations} /></p>}
+          {tieBreaks.map(({ label, text }) => <p key={label || "contenido"} className="mt-3 whitespace-pre-line leading-relaxed">{label && <><span className="font-semibold">{label}:</span>{" "}</>}<Cited text={text} ctx={citations} /></p>)}
+          {!view.summary && tieBreaks.length === 0 && <p className="mt-3 text-sm text-ink-soft">No hay resumen del moderador registrado para este caso.</p>}
         </section>
       )}
     </>
