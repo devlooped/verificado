@@ -4,6 +4,7 @@ import { COUNSEL, MODEL_NAME, modelName, VERDICTS, imageDescribed, project, type
 import { DEFAULT_MODELS, type ModelConfig } from "./models.ts";
 import { Rejection, tool, type Toolset } from "./toolset.ts";
 import { languageRule } from "../domain/language.ts";
+import { caseDateRule } from "../domain/case-date.ts";
 import { VERDICT_INSTRUCTIONS } from "./verdict-instructions.ts";
 
 export type SeatId = "judge" | Counsel;
@@ -41,6 +42,7 @@ export interface TurnPlan {
 export interface Docket {
   submission: Submission;
   today: string;
+  caseDate?: string;
   simulated?: boolean;
   language?: string;
   submissionContext?: SubmissionContext;
@@ -51,10 +53,10 @@ export interface Docket {
 const OBJECTION_GROUNDS =
   "a claim without evidence; evidence that does not exist or is miscited or misrepresented; an unreliable source; or an argument unrelated to the claims under examination";
 
-function counselBrief(c: Counsel, today: string, judge: string): string {
+function counselBrief(c: Counsel, today: string, judge: string, datedCase = false): string {
   const colleagues = COUNSEL.filter((x) => x !== c).map((x) => MODEL_NAME[x]);
   return [
-    "You are " + MODEL_NAME[c] + ", one of the four analysts of CheBot, a fact-checking panel without humans for the Argentine public. Your colleagues are " + colleagues.join(" and ") + ". The moderator is " + modelName(judge) + ". Today is " + today + ".",
+    "You are " + MODEL_NAME[c] + ", one of the four analysts of CheBot, a fact-checking panel without humans for the Argentine public. Your colleagues are " + colleagues.join(" and ") + ". The moderator is " + modelName(judge) + ". " + (datedCase ? "The case date is " : "Today is ") + today + ".",
     "You defend no position in advance. Your duty is to the truth: research, present evidence and argue your own assessment, even if it contradicts your colleagues.",
     "During instruction, research with web search and page reading. Prefer primary sources (official bodies, INDEC, the Boletín Oficial, original documents) and established media. Never invent URLs, figures or quotations: present only evidence you have read.",
     "If you have x_* tools, use them for what was published on X (posts, accounts, news) and cite the x.com URL they return. A post proves that someone published it, not that it is true.",
@@ -64,9 +66,9 @@ function counselBrief(c: Counsel, today: string, judge: string): string {
   ].join("\n");
 }
 
-function judgeBrief(today: string): string {
+function judgeBrief(today: string, datedCase = false): string {
   return [
-    "You are the moderator of CheBot, a fact-checking panel without humans for the Argentine public. Today is " + today + ".",
+    "You are the moderator of CheBot, a fact-checking panel without humans for the Argentine public. " + (datedCase ? "The case date is " : "Today is ") + today + ".",
     "Four analysts take part: " + COUNSEL.map((c) => MODEL_NAME[c]).join(", ") + ". You lead the debate: you set the claims, unify the evidence of instruction keeping its attributions, rule on objections and, when the analysts reach no majority on a claim, break the tie yourself.",
     "You are impartial. Decide only with what is in the record. Do not research on your own, except to read the submitted material when you set the claims.",
     "Record your decisions only with the court tools enabled in each turn. To read the submitted material you have web_fetch.",
@@ -113,7 +115,8 @@ export function composePrompt(input: { seat: SeatId; docket: Docket; record: rea
     : "";
   return [
     languageRule(docket.language ?? "es"),
-    seat === "judge" ? judgeBrief(docket.today) : counselBrief(seat, docket.today, (docket.models ?? DEFAULT_MODELS).judge.id),
+    ...(docket.caseDate ? [caseDateRule(docket.caseDate, docket.language ?? "es")] : []),
+    seat === "judge" ? judgeBrief(docket.today, !!docket.caseDate) : counselBrief(seat, docket.today, (docket.models ?? DEFAULT_MODELS).judge.id, !!docket.caseDate),
     submissionText(docket.submission, docket.submissionContext),
     "Debate record so far:\n" + (record.length ? record.map(describe).join("\n") : "(still empty)"),
     sources,

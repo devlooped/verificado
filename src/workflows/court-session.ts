@@ -284,37 +284,37 @@ async function prepareEvidence(caseId: string, spec: TurnSpec, simulated: boolea
 
 // A Quick check: one step per generation, so a completed paid answer is not
 // paid again when the workflow replays.
-async function identifyQuick(caseId: string, submission: Submission, language: string, model: CourtModel, attempt: number, simulated: boolean) {
+async function identifyQuick(caseId: string, submission: Submission, language: string, model: CourtModel, attempt: number, simulated: boolean, date?: string) {
   "use step";
   return observeCaseStep(caseId, "quick_claims", { "turn.attempt": attempt }, async () => {
-    const result = await quickIdentifyClaims(caseId, submission, language, model, attempt, simulated ? simulatedQuickDependencies("claims") : undefined);
+    const result = await quickIdentifyClaims(caseId, submission, language, model, attempt, simulated ? simulatedQuickDependencies("claims") : undefined, date);
     if ("error" in result) caseLog(caseId, "warn", "case.quick.failed", { "turn.kind": "claims", "turn.attempt": attempt });
     return result;
   });
 }
 
-async function answerQuick(caseId: string, submission: Submission, language: string, model: CourtModel, by: Counsel, attempt: number, simulated: boolean, claims?: readonly Claim[]) {
+async function answerQuick(caseId: string, submission: Submission, language: string, model: CourtModel, by: Counsel, attempt: number, simulated: boolean, claims?: readonly Claim[], date?: string) {
   "use step";
   return observeCaseStep(caseId, "quick_answer", { "turn.seat": by, "turn.attempt": attempt }, async () => {
-    const result = await quickAnswer(caseId, submission, language, model, by, attempt, simulated ? simulatedQuickDependencies("answer") : undefined, claims);
+    const result = await quickAnswer(caseId, submission, language, model, by, attempt, simulated ? simulatedQuickDependencies("answer") : undefined, claims, date);
     if ("error" in result) caseLog(caseId, "warn", "case.quick.failed", { "turn.kind": "answer", "turn.seat": by, "turn.attempt": attempt });
     return result;
   });
 }
 
-async function voteQuick(caseId: string, submission: Submission, language: string, model: CourtModel, by: Counsel, answer: QuickAnswer, attempt: number, retry: QuickFailure | undefined, simulated: boolean, claim?: Claim) {
+async function voteQuick(caseId: string, submission: Submission, language: string, model: CourtModel, by: Counsel, answer: QuickAnswer, attempt: number, retry: QuickFailure | undefined, simulated: boolean, claim?: Claim | null, date?: string) {
   "use step";
   return observeCaseStep(caseId, "quick_vote", { "turn.seat": by, "turn.attempt": attempt }, async () => {
-    const result = await quickVote(caseId, submission, language, model, by, answer, attempt, retry, simulated ? simulatedQuickDependencies("vote") : undefined, claim);
+    const result = await quickVote(caseId, submission, language, model, by, answer, attempt, retry, simulated ? simulatedQuickDependencies("vote") : undefined, claim ?? undefined, date);
     if ("error" in result) caseLog(caseId, "warn", "case.quick.failed", { "turn.kind": "vote", "turn.seat": by, "turn.attempt": attempt });
     return result;
   });
 }
 
-async function tiebreakQuick(caseId: string, submission: Submission, language: string, model: CourtModel, entries: QuickEntry[], attempt: number, simulated: boolean, claim?: Claim) {
+async function tiebreakQuick(caseId: string, submission: Submission, language: string, model: CourtModel, entries: QuickEntry[], attempt: number, simulated: boolean, claim?: Claim | null, date?: string) {
   "use step";
   return observeCaseStep(caseId, "quick_tiebreak", { "turn.attempt": attempt }, async () => {
-    const result = await quickTiebreak(caseId, submission, language, model, entries, attempt, simulated ? simulatedQuickDependencies("tiebreak") : undefined, claim);
+    const result = await quickTiebreak(caseId, submission, language, model, entries, attempt, simulated ? simulatedQuickDependencies("tiebreak") : undefined, claim ?? undefined, date);
     if ("error" in result) caseLog(caseId, "warn", "case.quick.failed", { "turn.kind": "tiebreak", "turn.attempt": attempt });
     return result;
   });
@@ -334,12 +334,12 @@ function describeError(err: unknown): string {
   return message.slice(0, 500);
 }
 
-export async function courtSession(caseId: string, latestPipeline = false, quickMajoritySummary = false): Promise<void> {
+export async function courtSession(caseId: string, latestPipeline = false, quickMajoritySummary = false, datedCase = false): Promise<void> {
   "use workflow";
   let shared = false;
   try {
     // Preserve the original step invocation for already-running workflows.
-    const { submission, today, simulated, pipelineVersion } = latestPipeline ? await openCase(caseId, true) : await openCase(caseId);
+    const { submission, today, caseDate, simulated, pipelineVersion } = latestPipeline ? await openCase(caseId, true) : await openCase(caseId);
     shared = sharedPipeline(pipelineVersion);
     const models = await configuredModels(caseId, shared);
     const counsel = counselModels(models);
@@ -355,10 +355,10 @@ export async function courtSession(caseId: string, latestPipeline = false, quick
       const language = await determineLanguage(caseId, submission, undefined, simulated, models.language);
       await holdQuickSession({
         submission, simulated, ...seats,
-        identify: (attempt) => identifyQuick(caseId, submission, language, models.judge, attempt, simulated),
-        answer: (by, attempt, claims) => submission.identifyClaims ? answerQuick(caseId, submission, language, counsel[by], by, attempt, simulated, claims) : answerQuick(caseId, submission, language, counsel[by], by, attempt, simulated),
-        vote: (by, answer, attempt, retry, claim) => claim ? voteQuick(caseId, submission, language, counsel[by], by, answer, attempt, retry, simulated, claim) : voteQuick(caseId, submission, language, counsel[by], by, answer, attempt, retry, simulated),
-        tiebreak: (entries, attempt, claim) => claim ? tiebreakQuick(caseId, submission, language, models.judge, entries, attempt, simulated, claim) : tiebreakQuick(caseId, submission, language, models.judge, entries, attempt, simulated),
+        identify: (attempt) => datedCase ? identifyQuick(caseId, submission, language, models.judge, attempt, simulated, caseDate) : identifyQuick(caseId, submission, language, models.judge, attempt, simulated),
+        answer: (by, attempt, claims) => datedCase ? answerQuick(caseId, submission, language, counsel[by], by, attempt, simulated, claims ?? [], caseDate) : submission.identifyClaims ? answerQuick(caseId, submission, language, counsel[by], by, attempt, simulated, claims) : answerQuick(caseId, submission, language, counsel[by], by, attempt, simulated),
+        vote: (by, answer, attempt, retry, claim) => datedCase ? voteQuick(caseId, submission, language, counsel[by], by, answer, attempt, retry, simulated, claim ?? null, caseDate) : claim ? voteQuick(caseId, submission, language, counsel[by], by, answer, attempt, retry, simulated, claim) : voteQuick(caseId, submission, language, counsel[by], by, answer, attempt, retry, simulated),
+        tiebreak: (entries, attempt, claim) => datedCase ? tiebreakQuick(caseId, submission, language, models.judge, entries, attempt, simulated, claim ?? null, caseDate) : claim ? tiebreakQuick(caseId, submission, language, models.judge, entries, attempt, simulated, claim) : tiebreakQuick(caseId, submission, language, models.judge, entries, attempt, simulated),
         ...(quickMajoritySummary ? { summarize: (majorities: QuickMajority[], attempt: number) => summarizeQuick(caseId, language, models.judge, majorities, attempt, simulated) } : {}),
         commit: (events: readonly RecordedEvent[]) => saveEvents(caseId, [...events]),
       });
@@ -370,7 +370,7 @@ export async function courtSession(caseId: string, latestPipeline = false, quick
     const collected = shared ? await collectShared(caseId, submission, simulated, models) : undefined;
     const submissionContext = collected?.context ?? (shared ? undefined : await collect(caseId, submission, simulated, models["image.description"]));
     const language = collected?.language ?? await determineLanguage(caseId, submission, submissionContext, simulated, models.language);
-    const docket: Docket = { submission: collected?.submission ?? submission, today, simulated, language, models, ...(submissionContext ? { submissionContext } : {}) };
+    const docket: Docket = { submission: collected?.submission ?? submission, today: datedCase ? caseDate : today, ...(datedCase ? { caseDate } : {}), simulated, language, models, ...(submissionContext ? { submissionContext } : {}) };
     await holdSession({
       submission,
       simulated,

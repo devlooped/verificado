@@ -1,5 +1,6 @@
 import { gateway, generateText, NoObjectGeneratedError, Output, stepCountIs, type LanguageModel, type ModelMessage, type ToolSet } from "ai";
 import { z } from "zod";
+import { caseDateRule } from "../domain/case-date.ts";
 import { project, sharedPipeline, type CaseRecord, type CourtEvent, type RecordedEvent } from "../domain/court.ts";
 import type { ArtifactStore } from "../evidence/artifacts.ts";
 import { caseArtifactStore } from "../evidence/blob.ts";
@@ -68,6 +69,7 @@ export async function advanceSharedTurn(caseId: string, docket: Docket, spec: Tu
   const initial = corpus
     ? `question.json:\n${corpus.question}\n\nindex.md:\n${corpus.index}`
     : JSON.stringify({ today: docket.today, submission: docket.submission, context: docket.submissionContext });
+  const dateRule = docket.caseDate ? "\n\n" + caseDateRule(docket.caseDate, docket.language) : "";
   const id = sha256(JSON.stringify([spec, attempt, ...record.map((event) => (event as RecordedEvent).seq || 0)]));
   const plan = createCourtActions(docket, spec, record, reader, corpus, native).plan;
   // The prompts are in English and are not translated: the language rule of the
@@ -92,7 +94,7 @@ export async function advanceSharedTurn(caseId: string, docket: Docket, spec: Tu
   };
 
   const preparation = await PhaseSession.open(caseId, { phase, seat, channel: "preparation", model,
-    system: phaseSystem(phase, seat, docket.language, "preparation", native), tools: JSON.stringify(native ? nativePreparationDefinitions(phase, model.id) : preparationDefinitions(phase)), initial }, injected?.repository);
+    system: phaseSystem(phase, seat, docket.language, "preparation", native) + dateRule, tools: JSON.stringify(native ? nativePreparationDefinitions(phase, model.id) : preparationDefinitions(phase)), initial }, injected?.repository);
   const prepTurn = await preparation.begin(id, record, task);
   await recordPrompts(preparation, prepTurn);
   let draft = prepTurn.draft ?? "";
@@ -107,7 +109,7 @@ export async function advanceSharedTurn(caseId: string, docket: Docket, spec: Tu
   const schemas = typed ? { output: z.toJSONSchema(typed.schema, { target: "draft-7" }) }
     : Object.fromEntries([...sourceTools.map((name) => [name, z.toJSONSchema(SourceToolSchemas[name], { target: "draft-7" })]), ...names.map((name) => [name, z.toJSONSchema(CourtActionSchemas[name], { target: "draft-7" })])]);
   const session = await PhaseSession.open(caseId, { phase, seat, channel: "decision", model,
-    system: phaseSystem(phase, seat, docket.language, "decision", native), tools: JSON.stringify(schemas), initial }, injected?.repository);
+    system: phaseSystem(phase, seat, docket.language, "decision", native) + dateRule, tools: JSON.stringify(schemas), initial }, injected?.repository);
   // A pipeline 3 instruction report quotes its sources verbatim, in their own
   // language: translated, its quotes would no longer match the sources. A
   // report whose translation fails is kept in its own language.

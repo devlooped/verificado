@@ -41,6 +41,9 @@ test("restart archives private references before reset, keeping the ID and origi
   assert.equal(archive.args?.[0], "AA-123-BB");
   assert.ok(!calls.some(({ sql }) => sql.startsWith("DELETE FROM images") || sql.startsWith("DELETE FROM case_rerun_resources")));
   assert.ok(calls.some(({ sql }) => sql.includes("status = 'queued'") && sql.includes("workflow_run_id = NULL")));
+  const reset = calls.find(({ sql }) => sql.startsWith("UPDATE cases SET status = 'queued'"))!;
+  assert.doesNotMatch(reset.sql, /created_at/);
+  assert.deepEqual(reset.args, ["AA-123-BB"]);
   assert.ok(calls.some(({ sql }) => sql === "COMMIT"));
 });
 

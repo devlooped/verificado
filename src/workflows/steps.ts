@@ -1,3 +1,4 @@
+import { caseDate } from "../domain/case-date.ts";
 import { checkType, sharedPipeline, type PipelineVersion, type Submission } from "../domain/court.ts";
 import { finishCase, openSession, recordEvents, registerContinuationRun } from "../store.ts";
 import type { ContinuationReservation, ContinuationWriter } from "../domain/continuation.ts";
@@ -7,7 +8,7 @@ import { requestedPipeline } from "../instruction/rollout.ts";
 import { getWorkflowMetadata, setAttributes } from "workflow";
 import { caseLog, errorFields, observeCaseStep } from "../lib/case-telemetry.ts";
 
-export async function openCase(caseId: string, latestPipeline = false): Promise<{ submission: Submission; today: string; simulated: boolean; pipelineVersion: PipelineVersion }> {
+export async function openCase(caseId: string, latestPipeline = false): Promise<{ submission: Submission; today: string; caseDate: string; simulated: boolean; pipelineVersion: PipelineVersion }> {
   "use step";
   return observeCaseStep(caseId, "open", {}, async () => {
     // Make the run discoverable by case ID in the Workflow dashboard/CLI.
@@ -18,10 +19,10 @@ export async function openCase(caseId: string, latestPipeline = false): Promise<
       catch (error) { caseLog(caseId, "warn", "case.workflow.attributes_failed", errorFields(error)); }
     }
     const simulated = mockAiEnabled();
-    const { submission, pipelineVersion = 1 } = await openSession(caseId, (stored) => requestedPipeline(caseId, simulated, checkType(stored), latestPipeline));
+    const { submission, createdAt, pipelineVersion = 1 } = await openSession(caseId, (stored) => requestedPipeline(caseId, simulated, checkType(stored), latestPipeline));
     const today = sharedPipeline(pipelineVersion) ? new Date().toISOString().slice(0, 10) : new Date().toLocaleDateString("es-AR", { dateStyle: "long", timeZone: "America/Argentina/Buenos_Aires" });
     caseLog(caseId, "info", "case.opened", { "case.pipeline": pipelineVersion, "case.check": checkType(submission), simulated });
-    return { submission, today, simulated, pipelineVersion };
+    return { submission, today, caseDate: caseDate(createdAt), simulated, pipelineVersion };
   });
 }
 

@@ -620,8 +620,8 @@ export async function restartCase(id: string, deleteBlobs: (ids: string[]) => Pr
       await client.query(`DELETE FROM ${table} WHERE case_id = $1`, [id]);
     }
     await client.query(
-      "UPDATE cases SET created_at = $2, status = 'queued', submission = submission - 'resolvedLanguage', error = NULL, revision = revision + 1, models = NULL, pipeline_version = NULL, workflow_run_id = NULL, stopped_workflow_run_id = NULL WHERE id = $1",
-      [id, new Date().toISOString()]
+      "UPDATE cases SET status = 'queued', submission = submission - 'resolvedLanguage', error = NULL, revision = revision + 1, models = NULL, pipeline_version = NULL, workflow_run_id = NULL, stopped_workflow_run_id = NULL WHERE id = $1",
+      [id]
     );
     await client.query("COMMIT");
     return "queued";

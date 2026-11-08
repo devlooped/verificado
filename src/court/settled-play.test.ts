@@ -52,7 +52,7 @@ test("four independent source-backed analysts settle once, then every debate pat
       // The workflow runs each unit in a step of its own: never more than one generation.
       for (let prepared = false; ;) {
         const before = generations;
-        const outcome = await advanceSharedTurn("fixture", { submission, today: "fixture", language: "es", models: DEFAULT_MODELS, simulated: true }, spec, record, attempt, {
+        const outcome = await advanceSharedTurn("fixture", { submission, today: "2026-11-04", caseDate: "2026-11-04", language: "es", models: DEFAULT_MODELS, simulated: true }, spec, record, attempt, {
           record: stored, reader: reader(), artifacts, repository, model, worker: mockResearchWorker,
           // Preparation takes two units: one still under way, one complete.
           prepare: async () => (prepared = !prepared) ? undefined : "SIMULACIÓN LOCAL: análisis preparatorio, no prueba.",
@@ -95,6 +95,7 @@ test("four independent source-backed analysts settle once, then every debate pat
     const system = prompts.filter((record) => record.data.role === "system" && record.data.channel === channel);
     assert.equal(new Set(system.map((record) => `${record.phase}:${record.seat}`)).size, system.length, "one system prompt per session");
     assert.ok(system.length >= 5 && system.every((record) => String(record.data.text).startsWith("LANGUAGE RULE: The case language is Latin American Spanish.")));
+    assert.ok(system.every((record) => String(record.data.text).includes("04 de noviembre de 2026") && String(record.data.text).includes("Resolve relative dates")));
   }
   const tasks = prompts.filter((record) => record.data.role === "task");
   assert.ok(tasks.some((record) => /^Set the claims to examine\./.test(String(record.data.text))));

@@ -95,9 +95,9 @@ function citedSources(sources: ReadonlyArray<{ sourceType: string; url?: string;
   return sources.flatMap((s) => s.sourceType === "url" && s.url && !seen.has(s.url) && seen.add(s.url) ? [{ url: s.url, ...(s.title ? { title: s.title } : {}) }] : []);
 }
 
-export async function quickIdentifyClaims(caseId: string, submission: Submission, language: string, model: CourtModel, attempt: number, injected?: QuickPlayDependencies): Promise<QuickClaims | QuickFailure> {
+export async function quickIdentifyClaims(caseId: string, submission: Submission, language: string, model: CourtModel, attempt: number, injected?: QuickPlayDependencies, date?: string): Promise<QuickClaims | QuickFailure> {
   const deps = injected ?? live;
-  const prompt = quickClaimsPrompt(submission, language, await image(caseId, submission, deps));
+  const prompt = quickClaimsPrompt(submission, language, await image(caseId, submission, deps), date);
   const native = !deps.model && submission.kind === "link" ? nativeTools(model.id) : undefined;
   const result = await generation(caseId, deps, {
     seat: "judge", step: "claims", attempt, sequence: attempt, model, outputPhase: submission.kind === "link" ? "research" : undefined,
@@ -117,9 +117,9 @@ export async function quickIdentifyClaims(caseId: string, submission: Submission
   return { claims: quickClaimsSchema.parse(result.output).claims.map((claim, i) => ({ id: "A" + (i + 1), ...claim })), at: result.at };
 }
 
-export async function quickAnswer(caseId: string, submission: Submission, language: string, model: CourtModel, by: Counsel, attempt: number, injected?: QuickPlayDependencies, claims: readonly Claim[] = []): Promise<QuickAnswer | QuickFailure> {
+export async function quickAnswer(caseId: string, submission: Submission, language: string, model: CourtModel, by: Counsel, attempt: number, injected?: QuickPlayDependencies, claims: readonly Claim[] = [], date?: string): Promise<QuickAnswer | QuickFailure> {
   const deps = injected ?? live;
-  const prompt = quickPrompt(submission, language, await image(caseId, submission, deps), claims);
+  const prompt = quickPrompt(submission, language, await image(caseId, submission, deps), claims, date);
   const native = deps.model ? undefined : nativeTools(model.id);
   const result = await generation(caseId, deps, {
     seat: by, step: "answer", attempt, sequence: attempt, model, outputPhase: "research",
@@ -136,9 +136,9 @@ export async function quickAnswer(caseId: string, submission: Submission, langua
   return { text: result.text, sources: result.sources ?? [], at: result.at, modelId: deps.model ? MOCK_MODEL_ID : model.id, effort: deps.model ? null : modelEffort(model) };
 }
 
-export async function quickVote(caseId: string, submission: Submission, language: string, model: CourtModel, by: Counsel, answer: QuickAnswer, attempt: number, retry?: QuickFailure, injected?: QuickPlayDependencies, claim?: Claim): Promise<QuickVote | QuickFailure> {
+export async function quickVote(caseId: string, submission: Submission, language: string, model: CourtModel, by: Counsel, answer: QuickAnswer, attempt: number, retry?: QuickFailure, injected?: QuickPlayDependencies, claim?: Claim, date?: string): Promise<QuickVote | QuickFailure> {
   const deps = injected ?? live;
-  const prompt = quickPrompt(submission, language, await image(caseId, submission, deps));
+  const prompt = quickPrompt(submission, language, await image(caseId, submission, deps), [], date);
   const messages = quickVoteMessages(prompt.messages, answer.text, retry, claim);
   // The vote copies the answer: no thinking, or the least the model allows.
   const reasoning = { providerOptions: withoutEffort(model.providerOptions), reasoning: "none" as const };
@@ -163,9 +163,9 @@ export async function quickVote(caseId: string, submission: Submission, language
   return { ...output, at: result.at, text: result.text ?? "" };
 }
 
-export async function quickTiebreak(caseId: string, submission: Submission, language: string, model: CourtModel, entries: QuickEntry[], attempt: number, injected?: QuickPlayDependencies, claim?: Claim): Promise<QuickDecision | QuickFailure> {
+export async function quickTiebreak(caseId: string, submission: Submission, language: string, model: CourtModel, entries: QuickEntry[], attempt: number, injected?: QuickPlayDependencies, claim?: Claim, date?: string): Promise<QuickDecision | QuickFailure> {
   const deps = injected ?? live;
-  const prompt = quickTiebreakPrompt(submission, language, entries, await image(caseId, submission, deps), claim);
+  const prompt = quickTiebreakPrompt(submission, language, entries, await image(caseId, submission, deps), claim, date);
   const result = await generation(caseId, deps, {
     seat: "judge", step: "tiebreak", attempt, sequence: (submission.identifyClaims && !claim ? 2 : 0) + attempt, model, claim,
     request: async () => ({ providerOptions: model.providerOptions, system: prompt.system, messages: withoutImages(prompt.messages), output: z.toJSONSchema(quickTiebreakSchema, { target: "draft-7" }) }),

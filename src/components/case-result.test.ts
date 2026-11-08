@@ -31,6 +31,25 @@ function render(input: CourtEvent[], record: CaseRecord = c) {
   return renderToStaticMarkup(createElement(CaseResult, { c: record, view: project(input) }));
 }
 
+test("the original material displays the creation date in the case language", () => {
+  for (const [language, expected] of [["es", "30 de octubre de 2026"], ["en", "October 30, 2026"]] as const) {
+    const record: CaseRecord = { ...c, submission: { ...c.submission, resolvedLanguage: language } };
+    const { document } = parseHTML(render(events, record));
+    const date = document.querySelector("figure time")!;
+    assert.equal(date.getAttribute("dateTime"), "2026-10-30");
+    assert.equal(date.textContent, expected);
+    assert.match(date.parentElement!.textContent!, /^ - /);
+    assert.match(document.querySelector("figure blockquote")!.textContent!, /Primera afirmación/);
+  }
+  for (const submission of [
+    { kind: "link" as const, url: "https://example.test", resolvedLanguage: "en" },
+    { kind: "image" as const, mimeType: "image/png", resolvedLanguage: "en" },
+  ]) {
+    const { document } = parseHTML(render([], { ...c, submission }));
+    assert.equal(document.querySelector("figure time")!.textContent, "October 30, 2026");
+  }
+});
+
 test("a Quick check with independent claims displays their results and a separate overall vote", () => {
   const quick: CaseRecord = { ...c, submission: { ...c.submission, check: "quick", identifyClaims: true } };
   const input: CourtEvent[] = [...events.filter((e) => e.type !== "case_summary"),

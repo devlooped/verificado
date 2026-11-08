@@ -45,6 +45,27 @@ test("an answer, its vote and a tie-break write their request, result and model 
   ]);
 });
 
+test("Quick claims, answers, votes and tiebreaks carry the same case date", async () => {
+  const artifacts = new MemoryArtifactStore();
+  const submission: Submission = { kind: "text", text: "Today the price fell." };
+  const date = "2026-11-07";
+  const claims = await quickIdentifyClaims(CASE, submission, "en", MODEL, 0, deps("claims", artifacts), date);
+  assert.ok(!failed(claims));
+  const answer = await quickAnswer(CASE, submission, "en", MODEL, "claude", 0, deps("answer", artifacts), [], date);
+  assert.ok(!failed(answer));
+  const vote = await quickVote(CASE, submission, "en", MODEL, "claude", answer, 0, undefined, deps("vote", artifacts), undefined, date);
+  assert.ok(!failed(vote));
+  assert.ok(!failed(await quickTiebreak(CASE, submission, "en", MODEL, [{ by: "claude", answer: answer.text, vote }], 0, deps("tiebreak", artifacts), undefined, date)));
+  const requests = [...(await artifacts.read(CASE))].filter(([path]) => path.endsWith("/request.json"));
+  assert.equal(requests.length, 4);
+  for (const [, bytes] of requests) {
+    const request = JSON.parse(new TextDecoder().decode(bytes));
+    assert.match(request.system, /November 07, 2026/);
+    assert.match(request.system, /Resolve relative dates/);
+    assert.match(JSON.stringify(request.messages), /Today the price fell/);
+  }
+});
+
 test("all Quick generations send the configured output cap to the model", async (t) => {
   const keys = ["CONTEXT_SIZE", "RESEARCH_CONTEXT_SIZE", "DEBATE_CONTEXT_SIZE"] as const;
   const previous = keys.map(key => process.env[key]);

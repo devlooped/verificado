@@ -27,7 +27,9 @@ test("a fresh rerun opens on the latest pipeline and an opened run keeps its ver
     release: () => {},
   })) as unknown as typeof Pool.prototype.connect);
   t.mock.method(console, "info", () => {});
-  assert.equal((await openCase("rerun", true)).pipelineVersion, 5);
+  const opened = await openCase("rerun", true);
+  assert.equal(opened.pipelineVersion, 5);
+  assert.equal(opened.caseDate, "2026-01-01");
   fresh = false;
   version = 3;
   assert.equal((await openCase("rerun", true)).pipelineVersion, 3, "reopening does not upgrade an existing run");
