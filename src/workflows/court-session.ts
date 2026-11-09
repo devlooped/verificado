@@ -7,7 +7,7 @@ import { holdSession } from "../court/procedure.ts";
 import { holdQuickSession, type QuickAnswer, type QuickEntry, type QuickFailure, type QuickMajority } from "../court/quick.ts";
 import { quickAnswer, quickIdentifyClaims, quickSummarize, quickTiebreak, quickVote, simulatedQuickDependencies } from "../court/quick-play.ts";
 import type { Docket, TurnOutcome, TurnSpec } from "../court/turns.ts";
-import { checkType, sharedPipeline, type CaseRecord, type Claim, type Counsel, type CourtEvent, type RecordedEvent, type Submission, type SubmissionContext } from "../domain/court.ts";
+import { checkType, project, sharedPipeline, type CaseRecord, type Claim, type Counsel, type CourtEvent, type RecordedEvent, type SourceView, type Submission, type SubmissionContext } from "../domain/court.ts";
 import { languageRule } from "../domain/language.ts";
 import { collectEvidenceBase } from "../evidence/collect.ts";
 import { imageDescriber } from "../evidence/describe.ts";
@@ -21,6 +21,7 @@ import type { EvidenceSeat, EvidenceStage } from "../evidence/schema.ts";
 import { closeCase, openCase, saveEvents } from "./steps.ts";
 import { getCase, getCaseAuditRecords, getImage, recordCaseToolActivity, revokeSandboxBindings, saveCaseAuditRecord, saveCaseLanguage, saveCaseModels } from "../store.ts";
 import { collectEvidence, fetchProposedUrls, rejectionRecord, type FetchedUrl } from "../instruction/collection.ts";
+import { criticismIndex } from "../instruction/criticism-index.ts";
 import { COLLECTION_BATCH, collectProposedBatches, proposedUrls } from "../instruction/proposed-urls.ts";
 import { collectInstruction } from "../instruction/intake.ts";
 import { fatalSourceFailure, liveSourceDependencies, SourceService } from "../instruction/sources.ts";
@@ -64,7 +65,7 @@ async function collectShared(caseId: string, submission: Submission, simulated: 
 
 // One unit of a shared turn: a preparation call or a decision generation. The
 // workflow loops over units, so no step lasts as long as the whole turn.
-async function advanceShared(caseId: string, docket: Docket, spec: TurnSpec, record: readonly CourtEvent[], attempt: number): Promise<TurnOutcome | null> {
+async function advanceShared(caseId: string, docket: Docket, spec: TurnSpec, record: readonly CourtEvent[], attempt: number, sourceIndex?: string): Promise<TurnOutcome | null> {
   "use step";
   return observeCaseStep(caseId, "advance_turn", { "turn.kind": spec.kind, "turn.seat": "counsel" in spec ? spec.counsel : "speaker" in spec ? spec.speaker : "judge", "turn.attempt": attempt }, async () => {
     const stored = await getCase(caseId);
@@ -76,7 +77,7 @@ async function advanceShared(caseId: string, docket: Docket, spec: TurnSpec, rec
         model: createMockSeat({ spec, record, submission: docket.submission, shared: true, native: stored.pipelineVersion === 3 || stored.pipelineVersion === 4 || stored.pipelineVersion === 5 }, false).model,
         prepare: async () => "SIMULACIÓN LOCAL: Análisis preparatorio ficticio; no agrega pruebas.", worker: mockResearchWorker,
         audit: async () => {}, activity: recordCaseToolActivity,
-      } : undefined);
+      } : undefined, sourceIndex);
     } catch (error) { throw fatalSourceFailure(error); }
     caseLog(caseId, outcome && !outcome.done ? "warn" : "info", outcome ? "case.turn.finished" : "case.turn.pending", { "turn.kind": spec.kind, "turn.seat": "counsel" in spec ? spec.counsel : "speaker" in spec ? spec.speaker : "judge", "turn.done": outcome?.done ?? false });
     return outcome ? linkEvidenceRun(outcome, undefined, docket.simulated, docket.models) : null;
@@ -87,9 +88,9 @@ async function advanceShared(caseId: string, docket: Docket, spec: TurnSpec, rec
 // only stops a defect from looping without end.
 const MAX_TURN_UNITS = 100;
 
-async function playShared(caseId: string, docket: Docket, spec: TurnSpec, record: readonly CourtEvent[], attempt: number): Promise<TurnOutcome> {
+async function playShared(caseId: string, docket: Docket, spec: TurnSpec, record: readonly CourtEvent[], attempt: number, sourceIndex?: string): Promise<TurnOutcome> {
   for (let unit = 0; unit < MAX_TURN_UNITS; unit++) {
-    const outcome = await advanceShared(caseId, docket, spec, record, attempt);
+    const outcome = sourceIndex === undefined ? await advanceShared(caseId, docket, spec, record, attempt) : await advanceShared(caseId, docket, spec, record, attempt, sourceIndex);
     if (outcome) return outcome;
   }
   throw new Error("Shared turn did not finish within " + MAX_TURN_UNITS + " steps");
@@ -109,6 +110,23 @@ async function settleShared(caseId: string, language: string, events: readonly R
 
 function collectionReader(caseId: string, language: string, simulated: boolean, stored: CaseRecord) {
   return simulated ? new SourceService(caseId, language, mockInstructionSources) : caseSourceService(stored);
+}
+
+// Native criticism: the index reads every source of the shared file from
+// storage. One step builds it for the four analysts, whose steps receive its
+// checkpointed result: the read neither counts against their time nor
+// repeats at each of their units and retries.
+async function buildCriticismIndex(caseId: string, language: string, sources: SourceView[], simulated: boolean): Promise<string> {
+  "use step";
+  return observeCaseStep(caseId, "criticism_index", { "sources.count": sources.length }, async () => {
+    const stored = await getCase(caseId);
+    if (!stored) throw new Error("Shared case unavailable");
+    try {
+      const index = await criticismIndex(sources, collectionReader(caseId, language, simulated, stored));
+      caseLog(caseId, "info", "case.criticism_index.built", { "sources.count": sources.length, "sources.canonical": new Set(sources.flatMap((source) => source.sourceId ? [source.sourceId] : [])).size, "index.chars": index.length });
+      return index;
+    } catch (error) { throw fatalSourceFailure(error); }
+  });
 }
 
 // Native collection: a few proposed URLs per step, then one step that
@@ -370,12 +388,22 @@ export async function courtSession(caseId: string, latestPipeline = false, quick
     const collected = shared ? await collectShared(caseId, submission, simulated, models) : undefined;
     const submissionContext = collected?.context ?? (shared ? undefined : await collect(caseId, submission, simulated, models["image.description"]));
     const language = collected?.language ?? await determineLanguage(caseId, submission, submissionContext, simulated, models.language);
+    // One criticism index per shared source file, whichever seats ask for it.
+    const indexes = new Map<string, Promise<string>>();
+    const sourceIndex = (record: readonly CourtEvent[]) => {
+      const sources = [...project(record).sources.values()];
+      const key = JSON.stringify(sources);
+      let index = indexes.get(key);
+      if (!index) indexes.set(key, index = buildCriticismIndex(caseId, language, sources, simulated));
+      return index;
+    };
     const docket: Docket = { submission: collected?.submission ?? submission, today: datedCase ? caseDate : today, ...(datedCase ? { caseDate } : {}), simulated, language, models, ...(submissionContext ? { submissionContext } : {}) };
     await holdSession({
       submission,
       simulated,
       ...seats,
       play: async (spec, record, attempt) => {
+        if (shared && spec.kind === "source_review" && (pipelineVersion === 3 || pipelineVersion === 4 || pipelineVersion === 5)) return playShared(caseId, docket, spec, record, attempt, await sourceIndex(record));
         if (shared) return playShared(caseId, docket, spec, record, attempt);
         const evidence = await prepareEvidence(caseId, spec, simulated, language, models);
         let outcome = await play(caseId, docket, spec, record, attempt, evidence);

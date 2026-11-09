@@ -1,4 +1,5 @@
 import { normalizeEvidenceBytes, sha256, type EvidenceFiles } from "./validate.ts";
+import { caseLog } from "../lib/case-telemetry.ts";
 import { withCaseWriteLock } from "../store.ts";
 import { normalizeArtifactBytes, type ArtifactStore } from "./artifacts.ts";
 import { GenerationArtifactBlockedError, type StagedGenerationArtifact } from "./generation-artifacts.ts";
@@ -189,12 +190,20 @@ async function putImmutable(key: string, bytes: Uint8Array | string, contentType
   }
 }
 
+// A whole-tree read downloads every artifact of the case, one object at a
+// time; past this, its log is a warning (a step has 300 s in all).
+const SLOW_ARTIFACT_READ_MS = 20_000;
+
 export const caseArtifactStore: ArtifactStore = {
   read: async (caseId) => {
+    const started = Date.now();
     const prefix = `cases/${encodeURIComponent(caseId)}/`;
     const files = new Map<string, Uint8Array>();
     const hashes = new Map<string, string>();
-    for (const object of await listAllObjects(prefix)) {
+    const objects = await listAllObjects(prefix);
+    const listed = Date.now() - started;
+    let bytes = 0;
+    for (const object of objects) {
       if (!object.key.startsWith(prefix)) throw new EvidenceConsistencyError("Artifact outside requested case");
       const path = object.key.slice(prefix.length);
       const hash = /^\.sha256\/([a-f0-9]{64})\/(.+)\.json$/.exec(path);
@@ -202,9 +211,16 @@ export const caseArtifactStore: ArtifactStore = {
         if (hashes.has(hash[2]!) && hashes.get(hash[2]!) !== hash[1]) throw new EvidenceConsistencyError("Conflicting immutable artifact hashes");
         hashes.set(hash[2]!, hash[1]!);
       } else if (/^(?:instruction|evidence|discussion|quick)\//.test(path) || path === "case.jsonl" || path === "case.json") {
-        files.set(path, await readObject(object));
+        const content = await readObject(object);
+        bytes += content.byteLength;
+        files.set(path, content);
       }
     }
+    const duration = Date.now() - started;
+    // Counts and durations only: which step reads the tree, how often, and at what cost.
+    caseLog(caseId, duration >= SLOW_ARTIFACT_READ_MS ? "warn" : "info", "case.artifacts.read", {
+      "artifacts.objects": objects.length, "artifacts.files": files.size, "artifacts.bytes": bytes, "artifacts.list_ms": listed, "duration.ms": duration,
+    });
     for (const [path, bytes] of files) {
       // Bytes written before a crash are not published until their hash exists.
       if (!hashes.has(path)) { files.delete(path); continue; }

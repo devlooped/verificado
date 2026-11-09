@@ -268,3 +268,28 @@ test("pipeline 3: a typed source review keeps its valid votes, and its retry nam
   assert.equal(outcome.done, true);
   assert.deepEqual(outcome.events.map((event) => event.type === "source_review_vote" && event.sourceId), ["E1", "E2", "E3"]);
 });
+
+test("pipeline 3: a source review given the index built by the workflow reads no source to build it again", async () => {
+  const artifacts = new MemoryArtifactStore(), operations = new MemoryOperationRepository(), repository = new MemoryPhaseRepository();
+  const submission = { kind: "text" as const, text: "SIMULACIÓN LOCAL: afirmación para verificar.", resolvedLanguage: "es" };
+  const stored: CaseRecord = { id: "fixture", createdAt: "2026-11-05T00:00:00.000Z", status: "in_session", pipelineVersion: 3, submission, models: modelSnapshot(DEFAULT_MODELS) };
+  const reader = new SourceService("fixture", "es", { operations, artifacts, extract: extractSource, translatorModelId: "fixture/translator", translatorFingerprint: "fixture-index-v1", translate: async (input) => ({ ...input, changed: false }), verifyLanguage: async () => ({ matches: true }), download: async () => { throw new Error("No source acquisition is expected"); } });
+  // Its source IDs are not in storage: building the index here would fail.
+  const record = [
+    { type: "claims_entered", claims: [{ id: "A1", quote: "", text: "SIMULACIÓN LOCAL: afirmación." }], seq: 1, at: "2026-11-05T00:00:00.000Z" },
+    { type: "evidence_unified", sources: [{ id: "E1", url: "https://example.org/E1", title: "Fuente E1", sourceId: "src_" + "0".repeat(24), contributions: [] }], seq: 2, at: "2026-11-05T00:00:00.000Z" },
+  ] as RecordedEvent[];
+  const prompts: string[] = [];
+  const answers = ["Decido no vetar la fuente.", JSON.stringify({ votes: [{ sourceId: "E1", veto: false, reason: "La fuente identifica su autoría y su método." }] })];
+  const model = new MockLanguageModelV4({ doGenerate: async (options) => {
+    prompts.push(JSON.stringify(options.prompt));
+    return { content: [{ type: "text" as const, text: answers[prompts.length - 1]! }], finishReason: { unified: "stop" as const, raw: undefined },
+      usage: { inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 0, text: 0, reasoning: 0 } }, warnings: [] };
+  } });
+  const deps = { record: stored, reader, artifacts, repository, model, prepare: async () => "Informe de revisión.", activity: async () => {}, audit: async () => {} };
+  const docket = { submission, today: "2026-11-05", language: "es", models: DEFAULT_MODELS, simulated: true };
+  await assert.rejects(playSharedTurn("fixture", docket, { kind: "source_review", counsel: "grok" }, record, 0, deps), /Canonical source unavailable/);
+  const outcome = await playSharedTurn("fixture", docket, { kind: "source_review", counsel: "grok" }, record, 0, deps, 'E1 · "Fuente E1" · índice precalculado');
+  assert.equal(outcome.done, true);
+  assert.ok(prompts[0]!.includes("índice precalculado"));
+});

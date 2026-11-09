@@ -935,6 +935,7 @@
         "advanceShared",
         "answerQuick",
         "archive",
+        "buildCriticismIndex",
         "collect",
         "collectProposals",
         "collectShared",

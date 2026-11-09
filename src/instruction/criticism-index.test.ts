@@ -14,7 +14,8 @@ const pages: Record<string, string> = {
 };
 
 test("the criticism index lists every E source, its passages within a cap, and the whole text of an X post", async () => {
-  const reader = new SourceService("fixture", "es", { operations: new MemoryOperationRepository(), artifacts: new MemoryArtifactStore(), extract: extractSource,
+  const artifacts = new MemoryArtifactStore();
+  const reader = new SourceService("fixture", "es", { operations: new MemoryOperationRepository(), artifacts, extract: extractSource,
     translatorModelId: "fixture/translator", translatorFingerprint: "fixture-v1", translate: async (input) => ({ ...input, changed: false }), verifyLanguage: async () => ({ matches: true }),
     download: async (url) => ({ ok: true, finalUrl: url, redirects: 0, contentType: "text/plain", bytes: new TextEncoder().encode(pages[url]!) }),
   });
@@ -25,7 +26,11 @@ test("the criticism index lists every E source, its passages within a cap, and t
     { id: "E1", title: "Comunicado", url: post, sourceId: ids.post, votes: {}, contributions: [evidence("P1", "grok", "A1", "supports", post, ids.post, ["p1:b1"]), evidence("P2", "grok", "A2", "context", post, ids.post, ["p1:b1"])] },
     { id: "E2", title: "Informe anual", url: report, sourceId: ids.report, votes: {}, contributions: [evidence("P3", "claude", "A1", "opposes", report, ids.report, ["p1:b1", "p1:b2"]), evidence("P4", "gemini", "A1", "opposes", report, ids.report, ["p1:b2"])] },
   ];
+  let reads = 0;
+  const read = artifacts.read.bind(artifacts);
+  artifacts.read = async (caseId) => { reads++; return read(caseId); };
   const index = await criticismIndex(sources, reader);
+  assert.equal(reads, 1, "every source comes from one read of the artifact tree");
   for (const source of sources) assert.match(index, new RegExp(`^${source.id} · "${source.title}" · `, "m"));
   assert.match(index, /Claims: A1 supports \(Grok\), A2 context \(Grok\)/);
   assert.match(index, /Claims: A1 opposes \(Claude, Gemini\)/);

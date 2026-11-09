@@ -41,9 +41,9 @@ const REASONING_GENERATION_MS = 240_000;
 const TYPED_TURN_MS = 600_000;
 
 // Runs every unit of a shared turn in this process (tests and scripts).
-export async function playSharedTurn(caseId: string, docket: Docket, spec: TurnSpec, record: readonly CourtEvent[], attempt: number, injected?: SharedTurnDependencies): Promise<TurnOutcome> {
+export async function playSharedTurn(caseId: string, docket: Docket, spec: TurnSpec, record: readonly CourtEvent[], attempt: number, injected?: SharedTurnDependencies, sourceIndex?: string): Promise<TurnOutcome> {
   for (;;) {
-    const outcome = await advanceSharedTurn(caseId, docket, spec, record, attempt, injected);
+    const outcome = await advanceSharedTurn(caseId, docket, spec, record, attempt, injected, sourceIndex);
     if (outcome) return outcome;
   }
 }
@@ -51,7 +51,9 @@ export async function playSharedTurn(caseId: string, docket: Docket, spec: TurnS
 // One bounded unit of a shared turn: one preparation unit or one decision
 // generation. Returns the outcome once the turn ends, undefined while it is
 // under way. Every unit is checkpointed, so each runs in a workflow step of its own.
-export async function advanceSharedTurn(caseId: string, docket: Docket, spec: TurnSpec, record: readonly CourtEvent[], attempt: number, injected?: SharedTurnDependencies): Promise<TurnOutcome | undefined> {
+// sourceIndex is the criticism index the workflow built in a step of its own;
+// without it, every unit builds the index again from storage.
+export async function advanceSharedTurn(caseId: string, docket: Docket, spec: TurnSpec, record: readonly CourtEvent[], attempt: number, injected?: SharedTurnDependencies, sourceIndex?: string): Promise<TurnOutcome | undefined> {
   const stored = injected?.record ?? await getCase(caseId);
   if (!stored || !sharedPipeline(stored.pipelineVersion) || !docket.models || !docket.language) throw new Error("Shared pipeline requires its durable processing snapshot");
   const artifacts = injected?.artifacts ?? caseArtifactStore;
@@ -76,7 +78,7 @@ export async function advanceSharedTurn(caseId: string, docket: Docket, spec: Tu
   // system prompt makes the seats write in the case language.
   const instruction = plan.instruction.replaceAll("web_fetch", "read_source");
   const note = native ? (phase === "instruction" ? "Your filing gives, for each source of the preparation report, its exact URL and the verbatim quote, copied from the report in the source's language, and for each claim what you searched for in both directions. The host fetches the URLs and keeps a proposal only if its quote is found there."
-      : "Index of the shared source file:\n" + await criticismIndex([...project(record).sources.values()], reader))
+      : "Index of the shared source file:\n" + (sourceIndex ?? await criticismIndex([...project(record).sources.values()], reader)))
     : phase === "instruction" ? "file_evidence takes the sourceId and blockIds you read with read_source; the host fills in the title and the passage. unify_evidence takes no groups: the host groups by canonical identity." : "";
   const task = `${JSON.stringify(spec)}\n${instruction}\n${note}`;
   // The system prompt and the task of each turn go to case.jsonl, which

@@ -18,14 +18,15 @@ const clip = (text: string, max: number) => text.length > max ? text.slice(0, ma
 // Pipeline 3 criticism: one batch per analyst over every source of the shared
 // file. The host builds the index from what it fetched itself: the passages
 // the analysts filed and, for an X post, its whole text, which a search tool
-// may not reach.
+// may not reach. Every source comes from one read of the verified artifact
+// tree: a read per source downloads the whole tree each time.
 export async function criticismIndex(sources: readonly SourceView[], reader: SourceService): Promise<string> {
+  const loaded = await reader.collectionSources([...new Set(sources.flatMap((source) => source.sourceId ? [source.sourceId] : []))]);
   const entries: string[] = [];
   for (const source of sources) {
     const lines = [`${source.id} · "${source.title}" · ${hostOf(source.url)} · ${source.url}`];
     lines.push("  Claims: " + [...grouped(source)].map(([key, by]) => `${key} (${by.join(", ")})`).join(", "));
-    const canonical = source.sourceId ? await reader.source(source.sourceId) : undefined;
-    const blocks = canonical ? await reader.blocks(canonical.document) : [];
+    const blocks = source.sourceId ? loaded.get(source.sourceId)!.blocks : [];
     if (isXPost(source.url) && blocks.length) {
       lines.push(`  Full post (fetched by the host): «${clip(blocks.map((block) => block.text).join("\n"), POST_CHARS)}»`);
     } else {

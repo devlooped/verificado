@@ -1242,6 +1242,42 @@
       ]
     },
     {
+      "id": "sources.criticism-index",
+      "routes": [
+        "expert:3",
+        "expert:4",
+        "expert:5"
+      ],
+      "dependsOn": [
+        "sources.file-proposals"
+      ],
+      "key": "unified-sources+contributions/input-hash",
+      "result": "índice de crítica íntegro, compartido por los cuatro source_review de la ronda; una lectura collectionSources por intento, cero red y cero modelo",
+      "effects": [
+        "artifact-read"
+      ],
+      "evidence": [
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "buildCriticismIndex"
+        },
+        {
+          "file": "src/instruction/criticism-index.ts",
+          "symbol": "criticismIndex"
+        }
+      ],
+      "gaps": [
+        "G01",
+        "G04"
+      ],
+      "workflowSteps": [
+        {
+          "file": "src/workflows/court-session.ts",
+          "symbol": "buildCriticismIndex"
+        }
+      ]
+    },
+    {
       "id": "sources.acquire",
       "routes": [
         "expert:2",

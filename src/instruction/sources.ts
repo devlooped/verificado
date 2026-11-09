@@ -311,8 +311,9 @@ export class SourceService {
     return this.sourceFrom(await this.deps.artifacts.read(this.caseId), sourceId);
   }
 
-  // Collection is read-only: load the verified artifact tree once for all
-  // proposed sources, rather than downloading the whole tree per source/block.
+  // Collection and the criticism index are read-only: load the verified
+  // artifact tree once for all their sources, rather than downloading the
+  // whole tree per source/block.
   async collectionSources(sourceIds: readonly string[]): Promise<Map<string, { source: CanonicalSource; blocks: SourceBlock[] }>> {
     if (!sourceIds.length) return new Map();
     const files = await this.deps.artifacts.read(this.caseId);
