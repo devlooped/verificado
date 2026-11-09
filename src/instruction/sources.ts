@@ -1,6 +1,6 @@
 import { modelEffort, type CourtModel } from "../court/models.ts";
 import { caseArtifactStore } from "../evidence/blob.ts";
-import type { ArtifactStore } from "../evidence/artifacts.ts";
+import { normalizeArtifactBytes, type ArtifactStore } from "../evidence/artifacts.ts";
 import { downloadUrl, sniffExtension, type DownloadResult } from "../evidence/download.ts";
 import { defaultRecognize, extractHtml, extractPdf } from "../evidence/extract.ts";
 import { languageVerifierFor, translatorFor, type LanguageVerifier, type Translator } from "../evidence/translate.ts";
@@ -191,6 +191,11 @@ export function liveSourceDependencies(translator: CourtModel, caseId?: string):
   return { operations: sourceOperationRepository, artifacts: caseArtifactStore, download: downloadUrl, extract: extractSource, translate: translatorFor(translator, caseId), verifyLanguage: languageVerifierFor(translator, caseId), translatorModelId: translator.id, translatorEffort: modelEffort(translator), translatorFingerprint: sha256(JSON.stringify([translator.id, translator.providerOptions, TRANSLATION_VERSION])) };
 }
 
+function holds(files: ReadonlyMap<string, Uint8Array>, path: string, hash: string): boolean {
+  const bytes = files.get(path);
+  return !!bytes && sha256(bytes) === hash;
+}
+
 export class SourceService {
   constructor(readonly caseId: string, readonly language: string, private readonly deps: SourceDependencies) {
     // The legacy stage callbacks/paths are not a generational effects protocol.
@@ -240,6 +245,36 @@ export class SourceService {
     }
   }
 
+  // Every read of the case's artifacts downloads the whole tree (about 10 s for
+  // a large case). Artifacts are immutable and verified by hash, so a file this
+  // service already read or wrote is served from memory; only a file it has not
+  // seen yet makes it read the tree again.
+  private readonly cached = new Map<string, Uint8Array>();
+  private refreshing?: Promise<unknown>;
+
+  // A fresh verified read of the tree, which also refreshes the memory.
+  private async readTree(): Promise<ReadonlyMap<string, Uint8Array>> {
+    const files = await this.deps.artifacts.read(this.caseId);
+    for (const [path, bytes] of files) this.cached.set(path, bytes);
+    return files;
+  }
+
+  private async artifactFiles(ready: (files: ReadonlyMap<string, Uint8Array>) => boolean): Promise<ReadonlyMap<string, Uint8Array>> {
+    if (this.cached.size && ready(this.cached)) return this.cached;
+    if (this.refreshing) {
+      await this.refreshing;
+      if (ready(this.cached)) return this.cached;
+    }
+    const refresh = this.refreshing = this.readTree();
+    try { await refresh; } finally { if (this.refreshing === refresh) this.refreshing = undefined; }
+    return this.cached;
+  }
+
+  private async write(path: string, content: Uint8Array | string): Promise<void> {
+    await this.deps.artifacts.write(this.caseId, new Map([[path, content]]));
+    this.cached.set(path, normalizeArtifactBytes(path, content));
+  }
+
   private fileFrom(files: ReadonlyMap<string, Uint8Array>, path: string, expectedHash: string): string {
     const bytes = files.get(path);
     if (!bytes || sha256(bytes) !== expectedHash) throw new Error("Required source artifact missing or changed");
@@ -247,12 +282,12 @@ export class SourceService {
   }
 
   private async file(path: string, expectedHash: string): Promise<string> {
-    return this.fileFrom(await this.deps.artifacts.read(this.caseId), path, expectedHash);
+    return this.fileFrom(await this.artifactFiles((files) => holds(files, path, expectedHash)), path, expectedHash);
   }
 
   private async writeDocument(source: ExtractedSource, path: string): Promise<StoredDocument> {
     const rendered = renderDocument(source, path);
-    await this.deps.artifacts.write(this.caseId, new Map([[path, rendered.markdown]]));
+    await this.write(path, rendered.markdown);
     return rendered.document;
   }
 
@@ -262,7 +297,7 @@ export class SourceService {
   }
 
   async blocks(document: StoredDocument): Promise<SourceBlock[]> {
-    return this.blocksFrom(await this.deps.artifacts.read(this.caseId), document);
+    return this.blocksFrom(await this.artifactFiles((files) => holds(files, document.path, document.hash)), document);
   }
 
   // Used for snippets, submission descriptions, court prose, and source titles.
@@ -288,7 +323,7 @@ export class SourceService {
         if (!verification.matches) throw new SourceProcessingFailure("Translation language could not be confirmed");
         const content = JSON.stringify({ title: translated.title, body: translated.body, changed: translated.changed, language: this.language, verification, ...(rejectedVerifications ? { rejectedVerifications } : {}), usage: translated.usage ?? null });
         const path = `instruction/operations/${sha256(key)}/translation.json`;
-        await this.deps.artifacts.write(this.caseId, new Map([[path, content]]));
+        await this.write(path, content);
         return { path, hash: sha256(content), modelId: this.deps.translatorModelId, effort: this.deps.translatorEffort ?? null, usage: translated.usage ?? null, verificationUsage: verification.usage ?? null };
       }, wait);
       const translated = JSON.parse(await this.file(result.value.path, result.value.hash)) as { title: string; body: string };
@@ -296,6 +331,10 @@ export class SourceService {
       output.push(translated.body);
     }
     return { title: translatedTitle, body: output.join("\n\n") };
+  }
+
+  private holdsSources(files: ReadonlyMap<string, Uint8Array>, sourceIds: readonly string[]): boolean {
+    try { for (const sourceId of sourceIds) this.sourceFrom(files, sourceId); return true; } catch { return false; }
   }
 
   private sourceFrom(files: ReadonlyMap<string, Uint8Array>, sourceId: string): CanonicalSource {
@@ -308,15 +347,16 @@ export class SourceService {
   }
 
   async source(sourceId: string): Promise<CanonicalSource> {
-    return this.sourceFrom(await this.deps.artifacts.read(this.caseId), sourceId);
+    return this.sourceFrom(await this.artifactFiles((files) => this.holdsSources(files, [sourceId])), sourceId);
   }
 
   // Collection and the criticism index are read-only: load the verified
   // artifact tree once for all their sources, rather than downloading the
-  // whole tree per source/block.
+  // whole tree per source/block. Each call takes a fresh snapshot, so a
+  // missing or changed source fails it.
   async collectionSources(sourceIds: readonly string[]): Promise<Map<string, { source: CanonicalSource; blocks: SourceBlock[] }>> {
     if (!sourceIds.length) return new Map();
-    const files = await this.deps.artifacts.read(this.caseId);
+    const files = await this.readTree();
     return new Map(sourceIds.map((sourceId) => {
       const source = this.sourceFrom(files, sourceId);
       return [sourceId, { source, blocks: this.blocksFrom(files, source.document) }];
@@ -339,7 +379,7 @@ export class SourceService {
           blocks: blocks.map((block, index) => ({ ...block, text: translated[index]!.body })) }, `${path}.md`);
         const result: TranslatedSource = { ...source, language: this.language, translation: { version: TRANSLATION_VERSION, modelId: this.deps.translatorModelId, fingerprint: this.deps.translatorFingerprint }, document };
         const content = JSON.stringify(result);
-        await this.deps.artifacts.write(this.caseId, new Map([[`${path}.json`, content]]));
+        await this.write(`${path}.json`, content);
         return { path: `${path}.json`, hash: sha256(content) };
       });
       const result = JSON.parse(await this.file(stored.value.path, stored.value.hash)) as TranslatedSource;
@@ -368,7 +408,7 @@ export class SourceService {
         if (!downloaded.ok) throw new SourceProcessingFailure(downloaded.error);
         const finalUrl = normalizeSourceUrl(downloaded.finalUrl);
         const originalPath = `${sourceRoot(sourceId)}/original.bin`;
-        await this.deps.artifacts.write(this.caseId, new Map([[originalPath, downloaded.bytes]]));
+        await this.write(originalPath, downloaded.bytes);
         return { sourceId, url, finalUrl, at: new Date().toISOString(), originalPath, rawHash: sha256(downloaded.bytes), contentType: downloaded.contentType, extension: sniffExtension(downloaded.bytes, downloaded.contentType, new URL(finalUrl).pathname) };
       });
       const acquisition = acquired.value;
@@ -376,7 +416,7 @@ export class SourceService {
       if (canonicalId !== sourceId) return this.inspect(acquisition.finalUrl);
       const extractionKey = `extraction:${sha256(JSON.stringify([acquisition.rawHash, this.deps.extractionVersion ?? EXTRACTION_VERSION, ["html", "htm"].includes(acquisition.extension) ? acquisition.finalUrl : acquisition.extension]))}`;
       const extracted = await this.stage<StoredDocument>(extractionKey, "extraction", async () => {
-        const bytes = (await this.deps.artifacts.read(this.caseId)).get(acquisition.originalPath);
+        const bytes = (await this.artifactFiles((files) => holds(files, acquisition.originalPath, acquisition.rawHash))).get(acquisition.originalPath);
         if (!bytes || sha256(bytes) !== acquisition.rawHash) throw new SourceProcessingFailure("Original source missing or changed");
         const result = await this.deps.extract({ ok: true, bytes, contentType: acquisition.contentType, finalUrl: acquisition.finalUrl, redirects: 0 }, acquisition.extension);
         if (!result.blocks.length || !result.blocks.some((block) => block.text.trim())) throw new SourceProcessingFailure("Source extraction empty");
@@ -388,7 +428,7 @@ export class SourceService {
   async read(input: SourceReadInput): Promise<SourceReadResult> {
     input = SourceReadSchema.parse(input);
     const fallbackId = await this.deps.operations.resolve(this.caseId, normalizeSourceUrl(input.url)) ?? sourceIdFor(normalizeSourceUrl(input.url));
-    const previous = (await this.deps.artifacts.read(this.caseId)).get(`${sourceRoot(fallbackId)}/source.json`);
+    const previous = (await this.artifactFiles((files) => files.has(`${sourceRoot(fallbackId)}/source.json`))).get(`${sourceRoot(fallbackId)}/source.json`);
     if (previous) {
       const source = JSON.parse(new TextDecoder().decode(previous)) as CanonicalSource;
       if (source.schemaVersion !== 3 || source.extraction.version !== (this.deps.extractionVersion ?? EXTRACTION_VERSION)) throw new Error("Source processing snapshot changed; a reviewed revision is required");
@@ -400,13 +440,13 @@ export class SourceService {
       const canonical = await this.stage<{ path: string; hash: string }>(sourceKey, "canonical", async () => {
         const markdown = await this.file(extracted.path, extracted.hash);
         const documentPath = `${sourceRoot(sourceId)}/extracted.md`;
-        await this.deps.artifacts.write(this.caseId, new Map([[documentPath, markdown]]));
+        await this.write(documentPath, markdown);
         const source: CanonicalSource = { schemaVersion: 3, sourceId, acquisition,
           extraction: { version: this.deps.extractionVersion ?? EXTRACTION_VERSION, path: extracted.path, hash: extracted.hash, tool: extracted.tool, confidence: extracted.confidence },
           document: { ...extracted, title: extracted.title || acquisition.finalUrl, path: documentPath } };
         const content = JSON.stringify(source);
         const path = `${sourceRoot(sourceId)}/source.json`;
-        await this.deps.artifacts.write(this.caseId, new Map([[path, content]]));
+        await this.write(path, content);
         return { path, hash: sha256(content) };
       });
       const source = JSON.parse(await this.file(canonical.value.path, canonical.value.hash)) as CanonicalSource;

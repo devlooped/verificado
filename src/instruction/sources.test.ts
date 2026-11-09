@@ -208,6 +208,22 @@ test("a failed or uncertain translation fails its workflow step at once, with it
   assert.equal(counts.translate, 2);
 });
 
+test("a service reads the artifact tree once for prose whose translations are already stored", async () => {
+  const { deps, counts, service } = fixture();
+  const prose = ["Primer párrafo 1.", "Segundo párrafo 2.", "Tercer párrafo 3.", "Cuarto párrafo 4."];
+  let reads = 0;
+  const read = deps.artifacts.read.bind(deps.artifacts);
+  deps.artifacts.read = async (caseId) => { reads++; return read(caseId); };
+  const writer = service();
+  for (const text of prose) await writer.normalize("", text);
+  assert.equal(reads, 0, "a translation this service wrote is served from memory");
+  // A retried step: a new service reuses each stored translation.
+  const reader = service();
+  for (const text of prose) await reader.normalize("", text);
+  assert.equal(counts.translate, prose.length);
+  assert.equal(reads, 1, "every stored translation comes from one read of the tree");
+});
+
 test("a single false rejection of text already in the case language does not fail the operation", async () => {
   const { deps, counts, service } = fixture();
   const answers = [false, true];

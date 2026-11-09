@@ -518,27 +518,34 @@
     {
       "file": "src/instruction/sources.ts",
       "scope": "SourceService.inspect",
-      "call": ".deps.artifacts.write",
+      "call": ".write",
       "kind": "write-candidate",
       "count": 1
     },
     {
       "file": "src/instruction/sources.ts",
       "scope": "SourceService.normalize",
-      "call": ".deps.artifacts.write",
+      "call": ".write",
       "kind": "write-candidate",
       "count": 1
     },
     {
       "file": "src/instruction/sources.ts",
       "scope": "SourceService.read",
-      "call": ".deps.artifacts.write",
+      "call": ".write",
       "kind": "write-candidate",
       "count": 2
     },
     {
       "file": "src/instruction/sources.ts",
       "scope": "SourceService.translated",
+      "call": ".write",
+      "kind": "write-candidate",
+      "count": 1
+    },
+    {
+      "file": "src/instruction/sources.ts",
+      "scope": "SourceService.write",
       "call": ".deps.artifacts.write",
       "kind": "write-candidate",
       "count": 1
@@ -546,7 +553,7 @@
     {
       "file": "src/instruction/sources.ts",
       "scope": "SourceService.writeDocument",
-      "call": ".deps.artifacts.write",
+      "call": ".write",
       "kind": "write-candidate",
       "count": 1
     },
