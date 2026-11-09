@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { ClaimsTable, extractClaimRows } from "@/components/claims-table.tsx";
 import { DeleteNotificationButton } from "@/components/delete-notification-button.tsx";
 import { ModelSettingsForm, type ModelRow } from "@/components/model-settings-form.tsx";
@@ -14,13 +14,19 @@ import { markNotificationsRead } from "./actions.ts";
 
 export const metadata: Metadata = { title: "Administración · Che bot", robots: { index: false, follow: false } };
 
+function adminLoginPath(before: string | undefined): string {
+  const returnTo = before ? `/admin?before=${encodeURIComponent(before)}` : "/admin";
+  return `/auth/login?returnTo=${encodeURIComponent(returnTo)}`;
+}
+
 export default async function AdminPage({ searchParams }: { searchParams: Promise<{ before?: string }> }) {
-  const session = await auth0.getSession();
-  // Hidden rather than forbidden: the route does not exist for anyone else.
-  if (!canViewAdmin(session?.user)) notFound();
+  const [session, { before }] = await Promise.all([auth0.getSession(), searchParams]);
+  const user = session?.user;
+  // Sign in first. Anyone else sees the ordinary 404, so the route stays unadvertised.
+  if (!user?.sub) redirect(adminLoginPath(before));
+  if (!canViewAdmin(user)) notFound();
   // Contrib sees the page read-only; the actions check isAdmin again.
-  const readOnly = !isAdmin(session.user);
-  const { before } = await searchParams;
+  const readOnly = !isAdmin(user);
   const [settings, catalog, notificationRows] = await Promise.all([
     loadModelSettings(),
     fetchGatewayModels().catch((err: unknown) => {
@@ -91,7 +97,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
           </a>
         </div>
         <div className="mt-3">
-          <ClaimsTable rows={extractClaimRows(session.user)} />
+          <ClaimsTable rows={extractClaimRows(user)} />
         </div>
       </section>
 
