@@ -49,7 +49,8 @@ try {
   await run("python3", ["-m", "pip", "install", "--break-system-packages", "pymupdf"], true);
   await run("npm", ["install", "--prefix", "/opt/evidence-harness", "--omit=dev"]);
   await run("bash", ["-lc", "command -v pdftotext >/dev/null && command -v pdftoppm >/dev/null && command -v convert >/dev/null && tesseract --list-langs 2>&1 | grep -qx spa && python3 -c 'import fitz' && test -f /opt/evidence-harness/node_modules/tsx/dist/loader.mjs"]);
-  const snapshot = await sandbox.snapshot({ expiration: 30 * 24 * 60 * 60 * 1000 });
+  // Production pins this id. Expiration 0 keeps it until that variable is updated and the old id is retired on purpose.
+  const snapshot = await sandbox.snapshot({ expiration: 0 });
   snapshotted = true;
   console.log("Evidence snapshot: " + snapshot.snapshotId);
   console.log("Set EVIDENCE_SANDBOX_SNAPSHOT_ID to this value.");
