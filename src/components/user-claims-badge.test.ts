@@ -47,15 +47,17 @@ test("UserClaimsPopover renders a shield button when closed and a claims table w
   assert.ok(!openHtml.includes('href="/admin"'), "lowercase admin is not the Admin role");
 });
 
-test("UserClaimsPopover makes the shield a link to /admin only for the exact Admin role", () => {
+test("UserClaimsPopover makes the shield a link to /admin only for the exact Admin or Contrib role", () => {
   const render = (roles: unknown, open = false) =>
     renderToStaticMarkup(createElement(UserClaimsPopover, { claims: { sub: "auth0|1", roles }, open, onToggle: () => {} }));
   for (const open of [false, true]) {
-    const admin = render(["beta", "Admin"], open);
-    assert.match(admin, /^<a [^>]*href="\/admin"/, "the shield itself is the link");
-    assert.doesNotMatch(admin, /<button|<table/);
+    for (const roles of [["beta", "Admin"], ["Contrib"]]) {
+      const html = render(roles, open);
+      assert.match(html, /^<a [^>]*href="\/admin"/, "the shield itself is the link");
+      assert.doesNotMatch(html, /<button|<table/);
+    }
   }
-  for (const roles of [["ADMIN"], ["superadmin"], "Admin", undefined]) {
+  for (const roles of [["ADMIN"], ["superadmin"], ["contrib"], "Admin", "Contrib", undefined]) {
     const html = render(roles, true);
     assert.ok(!html.includes('href="/admin"'));
     assert.match(html, /<button/);

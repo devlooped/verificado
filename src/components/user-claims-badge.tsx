@@ -4,7 +4,7 @@ import { useUser } from "@auth0/nextjs-auth0/client";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
-import { isAdmin } from "@/lib/case-access.ts";
+import { canViewAdmin, isAdmin } from "@/lib/case-access.ts";
 import { ClaimsTable, extractClaimRows } from "./claims-table.tsx";
 
 export { extractClaimRows, formatClaimValue } from "./claims-table.tsx";
@@ -36,8 +36,8 @@ export function UserClaimsPopover({
   const rows = extractClaimRows(claims);
   if (rows.length === 0) return null;
 
-  // Admins go straight to the admin page, which shows the same claims and the logout link.
-  if (isAdmin(claims)) {
+  // Admins and contributors (read-only) go straight to the admin page, which shows the same claims and the logout link.
+  if (canViewAdmin(claims)) {
     return (
       <Link
         href="/admin"
@@ -96,10 +96,13 @@ export function UserClaimsBadge() {
   const containerRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const pathname = usePathname();
+  const viewer = canViewAdmin(user);
   const admin = isAdmin(user);
 
   useEffect(() => {
-    if (!admin) return;
+    if (!viewer) return;
+    // Only an admin runs the checks (POST); a contributor only reads.
+    const check = admin ? "POST" : "GET";
     let active = true;
     async function refresh(method: "GET" | "POST") {
       try {
@@ -111,14 +114,14 @@ export function UserClaimsBadge() {
         if (data.changed && pathname === "/admin") router.refresh();
       } catch { /* The next poll retries; a network failure must not hide the badge. */ }
     }
-    void refresh("POST");
+    void refresh(check);
     const poll = window.setInterval(() => { if (!document.hidden) void refresh("GET"); }, 30_000);
-    const health = window.setInterval(() => { if (!document.hidden) void refresh("POST"); }, 5 * 60_000);
+    const health = window.setInterval(() => { if (!document.hidden) void refresh(check); }, 5 * 60_000);
     const focus = () => { if (!document.hidden) void refresh("GET"); };
     document.addEventListener("visibilitychange", focus);
     window.addEventListener(ADMIN_NOTIFICATIONS_CHANGED_EVENT, focus);
     return () => { active = false; window.clearInterval(poll); window.clearInterval(health); document.removeEventListener("visibilitychange", focus); window.removeEventListener(ADMIN_NOTIFICATIONS_CHANGED_EVENT, focus); };
-  }, [admin, pathname, router]);
+  }, [viewer, admin, pathname, router]);
 
   useEffect(() => {
     if (!open) return;

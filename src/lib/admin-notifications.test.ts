@@ -45,3 +45,14 @@ test("only admins can read or check notifications; checks require same origin", 
   assert.deepEqual(await (await adminNotificationResponse(get, user, deps)).json(), { unread: true, changed: false });
   assert.deepEqual(calls, ["unread"]);
 });
+
+test("a contributor reads notifications but cannot run the checks", async () => {
+  const calls: string[] = [];
+  const deps = { checkSnapshot: async () => { calls.push("check"); return true; }, hasUnread: async () => { calls.push("unread"); return false; } };
+  const get = new Request("https://example.test/api/admin/notifications");
+  const contrib = { sub: "contrib", roles: ["Contrib"] };
+  assert.equal((await adminNotificationResponse(new Request(get.url, { method: "POST", headers: { origin: "https://example.test" } }), contrib, deps)).status, 403);
+  assert.deepEqual(calls, []);
+  assert.deepEqual(await (await adminNotificationResponse(get, contrib, deps)).json(), { unread: false, changed: false });
+  assert.deepEqual(calls, ["unread"]);
+});

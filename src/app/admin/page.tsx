@@ -6,7 +6,7 @@ import { ModelSettingsForm, type ModelRow } from "@/components/model-settings-fo
 import { loadModelSettings, resolveFamilyModels } from "@/court/model-config.ts";
 import { MODEL_ROLES, modelEffort } from "@/court/models.ts";
 import { auth0 } from "@/lib/auth0.ts";
-import { isAdmin } from "@/lib/case-access.ts";
+import { canViewAdmin, isAdmin } from "@/lib/case-access.ts";
 import { fetchGatewayModels } from "@/lib/gateway-catalog.ts";
 import { latestFamilyModels, modelFamily } from "@/lib/model-families.ts";
 import { listAdminNotifications } from "@/store.ts";
@@ -17,7 +17,9 @@ export const metadata: Metadata = { title: "Administración · Che bot", robots:
 export default async function AdminPage({ searchParams }: { searchParams: Promise<{ before?: string }> }) {
   const session = await auth0.getSession();
   // Hidden rather than forbidden: the route does not exist for anyone else.
-  if (!isAdmin(session?.user)) notFound();
+  if (!canViewAdmin(session?.user)) notFound();
+  // Contrib sees the page read-only; the actions check isAdmin again.
+  const readOnly = !isAdmin(session.user);
   const { before } = await searchParams;
   const [settings, catalog, notificationRows] = await Promise.all([
     loadModelSettings(),
@@ -43,12 +45,13 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
       <section>
         <h1 className="font-display text-4xl leading-none">Administración</h1>
         <p className="mt-2 text-sm text-ink-soft">Sesión y configuración de los modelos que usa cada función.</p>
+        {readOnly && <p role="note" className="mt-2 text-sm font-medium text-ink-soft">Solo lectura: tu rol Contrib permite ver esta página, no modificarla.</p>}
       </section>
 
       <section aria-labelledby="notifications-heading">
         <div className="flex items-baseline justify-between gap-3 border-b border-rule pb-2">
           <h2 id="notifications-heading" className="font-display text-2xl leading-none">Notificaciones</h2>
-          {notifications.length > 0 && (
+          {!readOnly && notifications.length > 0 && (
             <form action={markNotificationsRead}>
               <input type="hidden" name="through" value={notifications[0]!.id} />
               <button type="submit" className="cursor-pointer text-sm text-celeste-deep underline">{before ? "Marcar hasta aquí como leídas" : "Marcar todas leídas"}</button>
@@ -69,7 +72,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
                   <p className="mt-1 text-ink-soft">{notification.message}</p>
                   {notification.case_id && <a className="mt-1 inline-block text-celeste-deep underline" href={"/c/" + encodeURIComponent(notification.case_id)}>Caso Nº {notification.case_id}</a>}
                 </div>
-                <DeleteNotificationButton id={notification.id} title={notification.title} />
+                {!readOnly && <DeleteNotificationButton id={notification.id} title={notification.title} />}
               </li>
             ))}
           </ol>
@@ -88,7 +91,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
           </a>
         </div>
         <div className="mt-3">
-          <ClaimsTable rows={extractClaimRows(session!.user)} />
+          <ClaimsTable rows={extractClaimRows(session.user)} />
         </div>
       </section>
 
@@ -98,7 +101,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
           Cada caso usa la última versión disponible de cada familia y conserva esa copia al abrir la sesión; los casos en curso no cambian.
           {!catalog && " El catálogo de models.dev no respondió: solo se valida el formato de los IDs."}
         </p>
-        <ModelSettingsForm rows={rows} catalog={options} />
+        <ModelSettingsForm rows={rows} catalog={options} readOnly={readOnly} />
       </section>
     </div>
   );

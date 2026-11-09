@@ -29,3 +29,14 @@ test("ModelSettingsForm offers searchable catalog IDs, the defaults and the effo
   const translatorEfforts = /name="translator:effort"[^>]*>(.*?)<\/select>/.exec(html)?.[1] ?? "";
   assert.doesNotMatch(translatorEfforts, /value="medium"/);
 });
+
+test("a read-only ModelSettingsForm shows the configuration without any way to change it", () => {
+  const rows: ModelRow[] = [
+    { ...MODEL_ROLE.judge, defaultId: modelFamily(MODEL_ROLE.judge.defaultId), modelId: "openai/gpt-luna", effort: "low", overridden: true },
+  ];
+  const html = renderToStaticMarkup(createElement(ModelSettingsForm, { rows, catalog: [], readOnly: true }));
+  assert.match(html, /<input id="judge:model"[^>]*readOnly=""[^>]*value="openai\/gpt-luna"|<input id="judge:model"[^>]*value="openai\/gpt-luna"[^>]*readOnly=""/);
+  assert.match(html, /<select name="judge:effort" disabled=""/);
+  assert.doesNotMatch(html, /type="submit"|Guardar|Restablecer/);
+  assert.match(html, /personalizado/);
+});

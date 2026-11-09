@@ -16,7 +16,7 @@ function effortsFor(catalog: readonly CatalogModel[], modelId: string, current: 
   return current && !efforts.includes(current) ? [...efforts, current] : efforts;
 }
 
-function ModelField({ row, catalog, error }: { row: ModelRow; catalog: readonly CatalogModel[]; error?: string }) {
+function ModelField({ row, catalog, error, readOnly }: { row: ModelRow; catalog: readonly CatalogModel[]; error?: string; readOnly: boolean }) {
   const [modelId, setModelId] = useState(row.modelId);
   const [effort, setEffort] = useState(row.effort ?? "");
   const isDefault = modelId.trim() === row.defaultId && (!row.configurableEffort || (effort || null) === row.defaultEffort);
@@ -36,6 +36,7 @@ function ModelField({ row, catalog, error }: { row: ModelRow; catalog: readonly 
             value={modelId}
             onChange={(event) => setModelId(event.target.value)}
             placeholder={row.defaultId}
+            readOnly={readOnly}
             autoComplete="off"
             spellCheck={false}
             aria-invalid={error ? true : undefined}
@@ -47,6 +48,7 @@ function ModelField({ row, catalog, error }: { row: ModelRow; catalog: readonly 
               name={effortField(row.key)}
               value={effort}
               onChange={(event) => setEffort(event.target.value)}
+              disabled={readOnly}
               aria-label={"Esfuerzo de " + row.label}
               className="rounded-sm border border-rule bg-paper px-2 py-1.5 font-mono text-sm text-ink focus:border-celeste-deep focus:outline-none"
             >
@@ -54,14 +56,14 @@ function ModelField({ row, catalog, error }: { row: ModelRow; catalog: readonly 
               {effortsFor(catalog, modelId.trim(), effort, row.kind).map((value) => <option key={value} value={value}>{value}</option>)}
             </select>
           )}
-          <button
+          {!readOnly && <button
             type="button"
             disabled={isDefault}
             onClick={() => { setModelId(row.defaultId); setEffort(row.defaultEffort ?? ""); }}
             className="rounded-sm border border-rule px-2.5 py-1.5 text-xs text-ink-soft transition hover:bg-paper-deep disabled:opacity-40"
           >
             Restablecer
-          </button>
+          </button>}
         </div>
         <p className="mt-1 font-mono text-[11px] text-ink-soft">
           Predeterminado: {row.defaultId}{row.configurableEffort ? " · esfuerzo " + (row.defaultEffort ?? "por defecto") : ""}
@@ -73,11 +75,11 @@ function ModelField({ row, catalog, error }: { row: ModelRow; catalog: readonly 
   );
 }
 
-export function ModelSettingsForm({ rows, catalog }: { rows: ModelRow[]; catalog: CatalogModel[] }) {
+export function ModelSettingsForm({ rows, catalog, readOnly = false }: { rows: ModelRow[]; catalog: CatalogModel[]; readOnly?: boolean }) {
   const [state, action, pending] = useActionState<ModelSettingsState, FormData>(saveModels, {});
   const groups = [...new Set(rows.map((row) => row.group))];
   return (
-    <form action={action} className="mt-4">
+    <form action={readOnly ? undefined : action} className="mt-4">
       {(["language", "image"] as const).map((kind) => (
         <datalist key={kind} id={"gateway-models-" + kind}>
           {catalog.filter((model) => model.type === kind).map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}
@@ -89,19 +91,19 @@ export function ModelSettingsForm({ rows, catalog }: { rows: ModelRow[]; catalog
           <div className="divide-y divide-rule/60">
             {rows.filter((row) => row.group === group).map((row) => (
               // Remount after a save so each field starts from the stored value.
-              <ModelField key={row.key + "=" + row.modelId + ":" + (row.effort ?? "")} row={row} catalog={catalog} error={state.errors?.[row.key as ModelRole]} />
+              <ModelField key={row.key + "=" + row.modelId + ":" + (row.effort ?? "")} row={row} catalog={catalog} error={state.errors?.[row.key as ModelRole]} readOnly={readOnly} />
             ))}
           </div>
         </fieldset>
       ))}
-      <div className="sticky bottom-0 mt-6 flex items-center gap-4 border-t border-rule bg-paper py-4">
+      {!readOnly && <div className="sticky bottom-0 mt-6 flex items-center gap-4 border-t border-rule bg-paper py-4">
         <button type="submit" disabled={pending} className="btn-primary rounded-sm px-4 py-2 text-sm font-medium disabled:opacity-60">
           {pending ? "Guardando…" : "Guardar"}
         </button>
         <p role="status" className="text-sm text-ink-soft">
           {state.error ?? (state.errors ? "Revisá los campos marcados." : state.saved === undefined ? "" : state.saved ? "Configuración guardada." : "No había cambios.")}
         </p>
-      </div>
+      </div>}
     </form>
   );
 }
