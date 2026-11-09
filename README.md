@@ -26,21 +26,26 @@ are not deleted by this feature and may retain step data under the workflow
 backend’s retention policy. Do not run `cases:regenerate-ids -- --apply`
 concurrently with case deletion.
 
-By default the moderator and Grok analyst use `spacexai/grok-4.7`; the other
-analysts use `google/gemini-4-argon`, `anthropic/claude-opus-5.5`, and
-`openai/gpt-6.1-sol`. Translations of sources and promoted evidence use a separate
-translator role, `google/gemini-3.5-flash-lite`. An uploaded image is described
-and its text transcribed once, by `openai/gpt-6.1-terra`, while the evidence base
+By default the moderator and Grok analyst use `spacexai/grok`; the other
+analysts use `google/gemini-argon`, `anthropic/opus`, and
+`openai/gpt-sol`. Translations of sources and promoted evidence use a separate
+translator role, `google/gemini-flash-lite`. An uploaded image is described
+and its text transcribed once, by `openai/gpt-terra`, while the evidence base
 is collected; language detection and cover review use
-`anthropic/claude-haiku-5.5`, cover search `spacexai/grok-4.7` and the cover
-illustration `spacexai/grok-imagine-image-2.0`. Every role (seats, image
+`anthropic/haiku`, cover search `spacexai/grok` and the cover
+illustration `spacexai/grok-imagine-image`. Every role (seats, image
 description, language detection, translator, cover search, review and
 illustration, and the tier-eval models, including the tier evaluator that
 routes each claim)
 has its default in `src/court/models.ts` and can be overridden by a user with
 the exact `Admin` role at `/admin`, linked from the session badge. Overrides are
-stored in the `model_settings` table and validated against the public Gateway
-catalog; each case snapshots the configuration when its session opens.
+stored in the `model_settings` table as provider and model family (including
+flavors such as `flash`), and validated against the Vercel catalog on
+models.dev. Existing versioned settings are read as families. The catalog is
+cached for an hour per process; on refresh failure the last successful copy is
+reused. If no copy is available, real cases cannot resolve their models. Each
+case snapshots the newest available version of each configured family when its
+session opens; retries keep that snapshot. Simulated cases work offline.
 `npm run models` lists the current Gateway catalog.
 
 All analysts have Gateway's Parallel web search and Browserbase page fetch.

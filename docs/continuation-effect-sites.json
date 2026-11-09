@@ -580,7 +580,7 @@
     },
     {
       "file": "src/lib/gateway-catalog.ts",
-      "scope": "fetchGatewayModels",
+      "scope": "fetchModelsDev",
       "call": "fetch",
       "kind": "network",
       "count": 1

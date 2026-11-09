@@ -1,11 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { loadModelSettings } from "@/court/model-config.ts";
-import { resolveModels } from "@/court/models.ts";
+import { loadModelSettings, resolveFamilyModels } from "@/court/model-config.ts";
 import { auth0 } from "@/lib/auth0.ts";
 import { isAdmin } from "@/lib/case-access.ts";
 import { fetchGatewayModels } from "@/lib/gateway-catalog.ts";
+import { latestFamilyModels } from "@/lib/model-families.ts";
 import { parseModelSettings } from "@/lib/model-settings.ts";
 import { deleteAdminNotification, markAdminNotificationsRead, saveModelSettings } from "@/store.ts";
 
@@ -39,7 +39,7 @@ export async function saveModels(_prev: ModelSettingsState, formData: FormData):
       return undefined;
     }),
   ]);
-  const result = parseModelSettings(formData, resolveModels(settings), catalog);
+  const result = parseModelSettings(formData, resolveFamilyModels(settings), catalog && latestFamilyModels(catalog));
   if (!result.ok) return { errors: result.errors };
   if (result.changes.length) await saveModelSettings(result.changes, user.email ?? user.sub);
   revalidatePath("/admin");

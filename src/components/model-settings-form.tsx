@@ -10,8 +10,8 @@ export type ModelRow = ModelRoleDefinition & { modelId: string; effort: string |
 
 const FALLBACK_EFFORTS = ["low", "medium", "high"];
 
-function effortsFor(catalog: readonly CatalogModel[], modelId: string, current: string): string[] {
-  const listed = catalog.find((model) => model.id === modelId)?.efforts;
+function effortsFor(catalog: readonly CatalogModel[], modelId: string, current: string, kind: ModelRow["kind"]): string[] {
+  const listed = catalog.find((model) => model.id === modelId && model.type === kind)?.efforts;
   const efforts = listed?.length ? listed : FALLBACK_EFFORTS;
   return current && !efforts.includes(current) ? [...efforts, current] : efforts;
 }
@@ -51,7 +51,7 @@ function ModelField({ row, catalog, error }: { row: ModelRow; catalog: readonly 
               className="rounded-sm border border-rule bg-paper px-2 py-1.5 font-mono text-sm text-ink focus:border-celeste-deep focus:outline-none"
             >
               <option value="">por defecto</option>
-              {effortsFor(catalog, modelId.trim(), effort).map((value) => <option key={value} value={value}>{value}</option>)}
+              {effortsFor(catalog, modelId.trim(), effort, row.kind).map((value) => <option key={value} value={value}>{value}</option>)}
             </select>
           )}
           <button

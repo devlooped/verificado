@@ -77,6 +77,11 @@ test("source scanner finds concatenated SQL and nested effects, not comments", (
   ]);
 });
 
+test("the model catalog's injectable fetch remains visible as a network effect", () => {
+  assert.ok(inspect("src/lib/gateway-catalog.ts").sites.some((site) =>
+    site.scope === "fetchModelsDev" && site.call === "fetch" && site.kind === "network"));
+});
+
 test("G02: a second pure Quick invocation starts at seq=1, not at the stored prefix", async () => {
   const stored: RecordedEvent[] = [];
   let answers = 0;

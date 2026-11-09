@@ -18,12 +18,15 @@ consultaron journal, proveedores, Blob ni producción. No hay prueba de que
   dependencias, efectos, símbolos de evidencia y huecos. Los nombres son de
   diseño; **no** son claves ya implementadas ni un nuevo formato histórico.
 - [`continuation-effect-sites.json`](continuation-effect-sites.json): snapshot
-  reproducible de 129 sitios sintácticos de efectos, pasos workflow y `TurnSpec`
+  reproducible de 131 sitios sintácticos de efectos, pasos workflow y `TurnSpec`
   en el árbol compartido actual, incluida la base separada de same-run retry;
   no es una prueba exhaustiva de efectos alcanzables. Se revisaron los cuatro
   sitios nuevos: arranque inicial one-shot, instalación explícita de schema y
   transacciones de creación/publicación. No se eliminaron sitios previos ni se
   cambió la secuencia de pasos o `TurnSpec`; actualizarlo no habilita una ruta.
+  El sitio `fetchModelsDev` reemplaza a `fetchGatewayModels`: una llamada
+  sintáctica compartida consulta models.dev y, opcionalmente, AI Gateway. La
+  caché puede reutilizar la última respuesta; no es una prueba de aislamiento.
 - [`../scripts/continuation-inventory.ts`](../scripts/continuation-inventory.ts):
   inspector de sólo lectura usando el parser que ya incluye Next. Sólo lee
   fuentes bajo `src/` y `sandbox/harness/`; no importa la aplicación, carga

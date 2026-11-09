@@ -6,7 +6,7 @@ import { context, trace } from "@opentelemetry/api";
 import { caseArtifactStore } from "../evidence/blob.ts";
 import { courtSession, linkEvidenceRun } from "./court-session.ts";
 import type { TurnOutcome } from "../court/turns.ts";
-import { COUNSEL_MODELS, MOCK_MODEL_ID } from "../court/models.ts";
+import { COUNSEL_MODELS, DEFAULT_MODELS, MOCK_MODEL_ID, MODEL_ROLES, modelSnapshot } from "../court/models.ts";
 
 test("shared failure cleanup retains all sandboxes without masking the primary failure or starting external calls", async t => {
   const keys = ["DATABASE_URL", "COURT_AI_MODE", "COURT_PIPELINE_VERSION"] as const;
@@ -15,14 +15,14 @@ test("shared failure cleanup retains all sandboxes without masking the primary f
   process.env.DATABASE_URL = "postgres://example.invalid/test";
   process.env.COURT_AI_MODE = "live";
   delete process.env.COURT_PIPELINE_VERSION;
-  const row = { id: "shared-missing-image", status: "queued", created_at: "2026-11-07T00:00:00Z", continuation_generation: 0, pipeline_version: 2, submission: { kind: "image", mimeType: "image/png" }, models: null };
+  const row = { id: "shared-missing-image", status: "queued", created_at: "2026-11-07T00:00:00Z", continuation_generation: 0, pipeline_version: 2, submission: { kind: "image", mimeType: "image/png" }, models: modelSnapshot(DEFAULT_MODELS) };
   let external = 0, revocations = 0;
   const primary = new Error("fixture primary collection failure");
   t.mock.method(caseArtifactStore, "write", async () => { throw primary; });
   t.mock.method(globalThis, "fetch", async () => { external++; throw new Error("forbidden network"); });
   t.mock.method(Sandbox, "get", (async () => { external++; throw new Error("forbidden sandbox"); }) as typeof Sandbox.get);
   t.mock.method(Sandbox, "list", (async () => { external++; throw new Error("forbidden list"); }) as typeof Sandbox.list);
-  t.mock.method(Pool.prototype, "query", (async () => ({ rows: [] })) as unknown as typeof Pool.prototype.query);
+  t.mock.method(Pool.prototype, "query", (async (query: string) => ({ rows: query.startsWith("SELECT * FROM cases") ? [row] : [] })) as unknown as typeof Pool.prototype.query);
   t.mock.method(Pool.prototype, "connect", (async () => ({ query: async (query: string) => {
     if (query.startsWith("SELECT id, continuation_generation")) return { rows: [row] };
     if (query.startsWith("SELECT id, submission FROM cases WHERE")) return { rows: [] };
@@ -110,6 +110,7 @@ test("a collection failure after opening marks the case as failed and rethrows",
   t.mock.method(Pool.prototype, "connect", (async () => client) as unknown as typeof Pool.prototype.connect);
   t.mock.method(Pool.prototype, "query", (async (sql: string, values?: unknown[]) => {
     if (sql.startsWith("CREATE TABLE") || sql.startsWith("SELECT case_id, seq, body FROM events") || sql.startsWith("SELECT role, model_id, effort FROM model_settings")) return { rows: [] };
+    if (sql.startsWith("SELECT * FROM cases WHERE")) return { rows: [row] };
     if (sql.startsWith("SELECT mime_type, bytes FROM images")) {
       assert.deepEqual(values, [caseId]);
       assert.equal(row.status, "in_session");
@@ -128,7 +129,11 @@ test("a collection failure after opening marks the case as failed and rethrows",
     }
     throw new Error(`Unexpected pool query: ${sql}`);
   }) as typeof Pool.prototype.query);
-  t.mock.method(globalThis, "fetch", async () => { throw new Error("Unexpected network access"); });
+  t.mock.method(globalThis, "fetch", async (url: string | URL | Request) => {
+    if (String(url) === "https://models.dev/api.json") return Response.json({ vercel: { models: Object.fromEntries(MODEL_ROLES.map((role) => [role.defaultId, { modalities: { output: [role.kind === "image" ? "image" : "text"] } }])) } });
+    if (String(url) === "https://ai-gateway.vercel.sh/v1/models") return Response.json({ data: [] });
+    throw new Error("Unexpected network access");
+  });
 
   const message = `No se encontró la imagen original del caso ${caseId}.`;
   await assert.rejects(courtSession(caseId), { message });
@@ -139,6 +144,11 @@ test("a collection failure after opening marks the case as failed and rethrows",
   assert.equal(row.status, "failed");
   assert.equal(row.error, message);
   assert.deepEqual(row.models?.judge, { id: "spacexai/grok-4.7", effort: "high" }, "the case keeps the models configured when it opened");
+  // Re-entry must retain the concrete snapshot, even if a newer catalog exists.
+  row.status = "queued";
+  row.models!.judge = { id: "spacexai/grok-4.3", effort: "high" };
+  await assert.rejects(courtSession(caseId), { message });
+  assert.equal(row.models?.judge?.id, "spacexai/grok-4.3");
 });
 
 test("a bridge preflight failure before opening marks the case failed and creates an alert", async (t) => {

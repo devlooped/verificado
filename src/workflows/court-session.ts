@@ -1,6 +1,6 @@
 import { illustrateCase, liveCoverDeps, type CoverModels } from "../court/cover.ts";
-import { loadModels } from "../court/model-config.ts";
-import { counselModels, courtModel, DEFAULT_MODELS, MOCK_MODEL_ID, modelEffort, modelSnapshot, seatModel, type CourtModel, type ModelConfig } from "../court/models.ts";
+import { loadModels, loadModelSettings } from "../court/model-config.ts";
+import { counselModels, courtModel, DEFAULT_MODELS, MOCK_MODEL_ID, modelEffort, modelSnapshot, resolveModels, seatModel, type CourtModel, type ModelConfig } from "../court/models.ts";
 import { playTurn } from "../court/play.ts";
 import { resolveCaseLanguage } from "../court/language.ts";
 import { holdSession } from "../court/procedure.ts";
@@ -27,7 +27,7 @@ import { collectInstruction } from "../instruction/intake.ts";
 import { fatalSourceFailure, liveSourceDependencies, SourceService } from "../instruction/sources.ts";
 import { sourceDownloader } from "../instruction/research.ts";
 import { mockInstructionArtifacts, mockInstructionSources, mockResearchWorker } from "../instruction/mock.ts";
-import { createMockSeat } from "../court/mock.ts";
+import { createMockSeat, mockAiEnabled } from "../court/mock.ts";
 import { advanceSharedTurn } from "../court/settled-play.ts";
 import { settleEvidence } from "../evidence/settled.ts";
 import { caseSourceService } from "../instruction/proxy.ts";
@@ -38,12 +38,13 @@ import { sha256 } from "../evidence/validate.ts";
 // One snapshot per session: every turn uses, and the case records, the same models.
 async function configuredModels(caseId: string, shared = false): Promise<ModelConfig> {
   "use step";
+  // Keep the existing step signature for workflow replay.
+  void shared;
   return observeCaseStep(caseId, "configure_models", {}, async () => {
-    if (shared) {
-      const stored = await getCase(caseId);
-      if (stored?.models) return Object.fromEntries(Object.entries(stored.models).map(([role, model]) => [role, courtModel(model.id, model.effort)])) as ModelConfig;
-    }
-    const models = await loadModels();
+    const stored = await getCase(caseId);
+    if (stored?.models) return Object.fromEntries(Object.entries(stored.models).map(([role, model]) => [role, courtModel(model.id, model.effort)])) as ModelConfig;
+    // A simulated case uses no real model and remains runnable offline.
+    const models = mockAiEnabled() ? resolveModels(await loadModelSettings()) : await loadModels();
     await saveCaseModels(caseId, modelSnapshot(models));
     return models;
   });

@@ -2,14 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { DEFAULT_MODELS, resolveModels } from "../court/models.ts";
 import type { CatalogModel } from "./gateway-catalog.ts";
+import { latestFamilyModels } from "./model-families.ts";
 import { effortField, modelField, parseModelSettings } from "./model-settings.ts";
 
-const catalog: CatalogModel[] = [
+const catalog: CatalogModel[] = latestFamilyModels([
   { id: "google/gemini-3.5-flash-lite", name: "Flash Lite", type: "language", tags: ["structured-output", "tool-use"], efforts: ["low", "high"] },
   { id: "openai/gpt-6-luna", name: "Luna", type: "language", tags: ["structured-output", "tool-use", "vision"], efforts: ["low", "medium", "high"] },
   { id: "spacexai/grok-4.7", name: "Grok", type: "language", tags: ["structured-output", "tool-use", "vision"], efforts: ["low", "medium", "high", "xhigh"] },
   { id: "spacexai/grok-imagine-image", name: "Imagine", type: "image", tags: ["image-generation"], efforts: [] },
-];
+]);
 
 const form = (entries: Record<string, string>) => {
   const data = new FormData();
@@ -24,7 +25,7 @@ test("unchanged and empty fields produce no changes", () => {
 
 test("a changed model and effort is validated against the catalog and saved", () => {
   const result = parseModelSettings(form({ [modelField("translator")]: " openai/gpt-6-luna ", [effortField("translator")]: "medium" }), DEFAULT_MODELS, catalog);
-  assert.deepEqual(result, { ok: true, changes: [{ role: "translator", setting: { modelId: "openai/gpt-6-luna", effort: "medium" } }] });
+  assert.deepEqual(result, { ok: true, changes: [{ role: "translator", setting: { modelId: "openai/gpt-luna", effort: "medium" } }] });
 });
 
 test("returning to the default removes the override", () => {
@@ -35,7 +36,7 @@ test("returning to the default removes the override", () => {
 
 test("rejects unknown models, wrong kinds, missing capabilities and unsupported efforts", () => {
   const result = parseModelSettings(form({
-    [modelField("counsel.grok")]: "spacexai/grok-9",
+    [modelField("counsel.grok")]: "spacexai/nonexistent-9",
     [modelField("cover.image")]: "spacexai/grok-4.7",
     [modelField("counsel.gemini")]: "google/gemini-3.5-flash-lite",
     [modelField("translator")]: "google/gemini-3.5-flash-lite",
@@ -56,10 +57,19 @@ test("x_search's researcher only takes Grok models, since native X search exists
   assert.equal(rejected.ok, false);
   if (!rejected.ok) assert.match(rejected.errors["research.x"]!, /spacexai/);
   const accepted = parseModelSettings(form({ [modelField("research.x")]: "spacexai/grok-4.7", [effortField("research.x")]: "low" }), DEFAULT_MODELS, catalog);
-  assert.deepEqual(accepted, { ok: true, changes: [{ role: "research.x", setting: { modelId: "spacexai/grok-4.7", effort: "low" } }] });
+  assert.deepEqual(accepted, { ok: true, changes: [{ role: "research.x", setting: { modelId: "spacexai/grok", effort: "low" } }] });
 });
 
 test("without a catalog only the ID format is checked, and image roles ignore effort", () => {
   const result = parseModelSettings(form({ [modelField("cover.image")]: "google/imagen-9", [effortField("cover.image")]: "high" }), DEFAULT_MODELS);
-  assert.deepEqual(result, { ok: true, changes: [{ role: "cover.image", setting: { modelId: "google/imagen-9", effort: null } }] });
+  assert.deepEqual(result, { ok: true, changes: [{ role: "cover.image", setting: { modelId: "google/imagen", effort: null } }] });
+});
+
+test("the same family can offer both language and image models", () => {
+  const mixed = latestFamilyModels([
+    { id: "openai/example-1", name: "language", type: "language", tags: [], efforts: [] },
+    { id: "openai/example-2", name: "image", type: "image", tags: [], efforts: [] },
+  ]);
+  const result = parseModelSettings(form({ [modelField("translator")]: "openai/example" }), DEFAULT_MODELS, mixed);
+  assert.deepEqual(result, { ok: true, changes: [{ role: "translator", setting: { modelId: "openai/example", effort: null } }] });
 });

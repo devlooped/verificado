@@ -1,5 +1,6 @@
 import { MODEL_ROLES, modelEffort, type ModelConfig, type ModelRole } from "../court/models.ts";
 import type { CatalogModel } from "./gateway-catalog.ts";
+import { modelFamily } from "./model-families.ts";
 
 export type ModelChange = { role: ModelRole; setting: { modelId: string; effort: string | null } | null };
 export type ModelSettingsResult = { ok: true; changes: ModelChange[] } | { ok: false; errors: Partial<Record<ModelRole, string>> };
@@ -23,18 +24,20 @@ export function parseModelSettings(form: FormData, current: ModelConfig, catalog
     // model, or the provider's own effort.
     const field = (name: string) => form.has(name) ? String(form.get(name)).trim() : undefined;
     const typedId = field(modelField(role.key));
-    const modelId = typedId === undefined ? now.id : typedId || role.defaultId;
+    const defaultId = modelFamily(role.defaultId);
+    const modelId = modelFamily(typedId === undefined ? now.id : typedId || defaultId);
     const typedEffort = role.configurableEffort ? field(effortField(role.key)) : null;
     const effort = typedEffort === undefined ? modelEffort(now) : typedEffort || null;
-    if (modelId === now.id && effort === (role.configurableEffort ? modelEffort(now) : null)) continue;
-    if (modelId === role.defaultId && effort === role.defaultEffort) {
+    if (modelId === modelFamily(now.id) && effort === (role.configurableEffort ? modelEffort(now) : null)) continue;
+    if (modelId === defaultId && effort === role.defaultEffort) {
       changes.push({ role: role.key, setting: null });
       continue;
     }
     if (!MODEL_ID.test(modelId)) { errors[role.key] = "Usá un ID de AI Gateway, como proveedor/modelo."; continue; }
     if (role.provider && !modelId.startsWith(role.provider + "/")) { errors[role.key] = "Este rol solo admite modelos de " + role.provider + "."; continue; }
     if (effort && !EFFORT.test(effort)) { errors[role.key] = "Esfuerzo no válido."; continue; }
-    const entry = catalog?.find((model) => model.id === modelId);
+    const entry = catalog?.find((model) => model.id === modelId && model.type === role.kind)
+      ?? catalog?.find((model) => model.id === modelId);
     if (catalog && !entry) { errors[role.key] = modelId + " no está en el catálogo de AI Gateway."; continue; }
     if (entry) {
       if (entry.type !== role.kind) { errors[role.key] = "Elegí un modelo " + KIND_LABEL[role.kind] + "."; continue; }

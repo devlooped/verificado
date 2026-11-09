@@ -3,11 +3,12 @@ import { notFound } from "next/navigation";
 import { ClaimsTable, extractClaimRows } from "@/components/claims-table.tsx";
 import { DeleteNotificationButton } from "@/components/delete-notification-button.tsx";
 import { ModelSettingsForm, type ModelRow } from "@/components/model-settings-form.tsx";
-import { loadModelSettings } from "@/court/model-config.ts";
-import { MODEL_ROLES, modelEffort, resolveModels } from "@/court/models.ts";
+import { loadModelSettings, resolveFamilyModels } from "@/court/model-config.ts";
+import { MODEL_ROLES, modelEffort } from "@/court/models.ts";
 import { auth0 } from "@/lib/auth0.ts";
 import { isAdmin } from "@/lib/case-access.ts";
 import { fetchGatewayModels } from "@/lib/gateway-catalog.ts";
+import { latestFamilyModels, modelFamily } from "@/lib/model-families.ts";
 import { listAdminNotifications } from "@/store.ts";
 import { markNotificationsRead } from "./actions.ts";
 
@@ -27,14 +28,15 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
     listAdminNotifications(typeof before === "string" ? before : undefined),
   ]);
   const notifications = notificationRows.slice(0, 100);
-  const models = resolveModels(settings);
+  const models = resolveFamilyModels(settings);
   const rows: ModelRow[] = MODEL_ROLES.map((role) => ({
     ...role,
+    defaultId: modelFamily(role.defaultId),
     modelId: models[role.key].id,
     effort: role.configurableEffort ? modelEffort(models[role.key]) : null,
     overridden: settings.some((setting) => setting.role === role.key),
   }));
-  const options = (catalog ?? []).filter((model) => model.type === "language" || model.type === "image");
+  const options = latestFamilyModels(catalog ?? []);
 
   return (
     <div className="mx-auto max-w-4xl space-y-12 pt-10">
@@ -93,8 +95,8 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
       <section aria-labelledby="models-heading">
         <h2 id="models-heading" className="border-b border-rule pb-2 font-display text-2xl leading-none">Modelos</h2>
         <p className="mt-2 text-sm text-ink-soft">
-          Cada caso toma una copia de esta configuración al abrir la sesión; los casos en curso no cambian.
-          {!catalog && " El catálogo de AI Gateway no respondió: solo se valida el formato de los IDs."}
+          Cada caso usa la última versión disponible de cada familia y conserva esa copia al abrir la sesión; los casos en curso no cambian.
+          {!catalog && " El catálogo de models.dev no respondió: solo se valida el formato de los IDs."}
         </p>
         <ModelSettingsForm rows={rows} catalog={options} />
       </section>
