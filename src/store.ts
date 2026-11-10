@@ -678,13 +678,15 @@ export async function resumeFailedCase(id: string, options: { reason: string; st
       [id, now, reason, stages]
     );
     if (recovered.rowCount === 0 && !force) { await client.query("ROLLBACK"); return "no-operations"; }
-    // Phase sessions and sandbox bindings are ephemeral per-turn execution
-    // state tied to the previous workflow run: their recorded sandbox IDs
-    // belong to sandboxes the workflow already revoked at settle, and
-    // saveSandboxBinding refuses to un-revoke them. Clearing them here lets
-    // the new workflow run create fresh sandboxes/bindings while reusing
-    // every ready source operation, every event, and the artifact tree.
-    for (const table of ["case_phase_sessions", "case_sandbox_bindings"]) {
+    // Events, phase sessions, sandbox bindings, covers, and audit records
+    // are ephemeral replay state: holdSession always starts with log=[] and
+    // the sandbox proxy authorizes every call against committedPhase(events),
+    // so pre-existing events from an earlier phase cause every new intake
+    // binding to be rejected as sandbox_forbidden. Clearing them lets the
+    // new workflow run build its log from scratch while reusing every ready
+    // source operation, every source alias, and the artifact tree (R2/Blob)
+    // — which is where the bulk of the external work lives.
+    for (const table of ["events", "covers", "case_phase_sessions", "case_sandbox_bindings", "case_audit_records"]) {
       await client.query(`DELETE FROM ${table} WHERE case_id = $1`, [id]);
     }
     await client.query(
