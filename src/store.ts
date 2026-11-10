@@ -633,6 +633,64 @@ export async function restartCase(id: string, deleteBlobs: (ids: string[]) => Pr
   }
 }
 
+// Surgical alternative to restartCase: recover all failed/uncertain source
+// operations of a failed case to pending and reset the case to queued without
+// wiping events, aliases, sessions, bindings, or the artifact tree. Preserves
+// every ready operation so a new workflow run reuses them. Fails closed unless
+// the previous workflow run is settled and continuation state is clean.
+export async function resumeFailedCase(id: string, options: { reason: string; stages?: readonly string[] }): Promise<"queued" | "missing" | "inactive" | "active" | "no-operations"> {
+  const reason = options.reason.trim();
+  if (!reason) throw new Error("Recovery requires an explicit reason");
+  const stages = options.stages?.length ? [...options.stages] : null;
+  const client = await (await db()).connect();
+  try {
+    await client.query("BEGIN");
+    const { rows } = await client.query<{ status: CaseStatus; workflow_run_id: string | null; stopped_workflow_run_id: string | null; continuation_generation: number; retry_contract_version: string | null }>("SELECT status, workflow_run_id, stopped_workflow_run_id, continuation_generation, retry_contract_version FROM cases WHERE id = $1 FOR UPDATE", [id]);
+    if (!rows.length) { await client.query("ROLLBACK"); return "missing"; }
+    const row = rows[0]!;
+    if (row.retry_contract_version != null || (row.continuation_generation ?? 0) !== 0 || row.status !== "failed") {
+      await client.query("ROLLBACK");
+      return "inactive";
+    }
+    const runIds = [...new Set([row.workflow_run_id, row.stopped_workflow_run_id].filter((runId): runId is string => Boolean(runId)))];
+    if (runIds.length && !(await Promise.all(runIds.map(runId => rerunRunSettled(runId)))).every(Boolean)) {
+      await client.query("ROLLBACK");
+      return "active";
+    }
+    const now = new Date().toISOString();
+    const recovered = await client.query<{ operation_key: string }>(
+      `UPDATE case_source_operations
+       SET body = jsonb_set(
+         jsonb_set(
+           jsonb_set(
+             (body - 'owner' - 'expiresAt' - 'error'),
+             '{status}', '"pending"'::jsonb
+           ),
+           '{at}', to_jsonb($2::text)
+         ),
+         '{recoveries}', coalesce(body->'recoveries', '[]'::jsonb) || jsonb_build_array(jsonb_build_object('at', $2::text, 'reason', $3::text))
+       )
+       WHERE case_id = $1
+         AND body->>'status' IN ('failed','uncertain')
+         AND ($4::text[] IS NULL OR body->>'stage' = ANY($4::text[]))
+       RETURNING operation_key`,
+      [id, now, reason, stages]
+    );
+    if (recovered.rowCount === 0) { await client.query("ROLLBACK"); return "no-operations"; }
+    await client.query(
+      "UPDATE cases SET status = 'queued', error = NULL, revision = revision + 1, workflow_run_id = NULL, stopped_workflow_run_id = NULL WHERE id = $1",
+      [id]
+    );
+    await client.query("COMMIT");
+    return "queued";
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 // Old ids keep resolving after a case is renamed, so shared links still work.
 export async function findCaseAlias(oldId: string): Promise<string | undefined> {
   const { rows } = await (await db()).query<{ case_id: string }>("SELECT case_id FROM case_aliases WHERE old_id = $1", [oldId]);

@@ -181,7 +181,7 @@ for (const changed of [false, true]) test(`unconfirmed output language fails clo
   };
   const read = await service().read({ url: "https://example.test/untranslated.txt" });
   for (let attempt = 0; attempt < 2; attempt++) await assert.rejects(service().translated(read.sourceId), (error) => error instanceof SourceTranslationUnavailable && error.status === "failed" && !/ForeignTitle|ForeignSentinel/.test(error.message));
-  assert.equal(verifications, 6, "each rejection is checked once more before the operation fails");
+  assert.equal(verifications, 15, "each rejection is checked four more times before the operation fails");
   assert.equal(counts.translate, 3);
   const files = await deps.artifacts.read("fixture");
   assert.ok(![...files.keys()].some((path) => path.includes("/translations/") || path.endsWith("/translation.json")));

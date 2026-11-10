@@ -17,7 +17,9 @@ export const TRANSLATION_VERSION = "canonical-markdown-verified-v2";
 // The language verifier is a model, and it sometimes rejects text already in
 // the case language, such as the host's own prompts. A failed operation is final,
 // so a rejection is checked again this many times before it fails the case.
-const LANGUAGE_VERIFICATIONS = 2;
+// Settlement translates dozens of blocks per case, so this must absorb a few
+// independent flaky rejections per block without wasting the whole case.
+const LANGUAGE_VERIFICATIONS = 5;
 
 // A completed, rejected result is different from an interrupted external call.
 export class SourceProcessingFailure extends Error {}
