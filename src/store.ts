@@ -638,7 +638,7 @@ export async function restartCase(id: string, deleteBlobs: (ids: string[]) => Pr
 // wiping events, aliases, sessions, bindings, or the artifact tree. Preserves
 // every ready operation so a new workflow run reuses them. Fails closed unless
 // the previous workflow run is settled and continuation state is clean.
-export async function resumeFailedCase(id: string, options: { reason: string; stages?: readonly string[]; force?: boolean }): Promise<"queued" | "missing" | "inactive" | "active" | "no-operations"> {
+export async function resumeFailedCase(id: string, options: { reason: string; stages?: readonly string[]; force?: boolean; deleteTurnBlobs?: (caseId: string) => Promise<number> }): Promise<"queued" | "missing" | "inactive" | "active" | "no-operations"> {
   const reason = options.reason.trim();
   if (!reason) throw new Error("Recovery requires an explicit reason");
   const stages = options.stages?.length ? [...options.stages] : null;
@@ -694,6 +694,16 @@ export async function resumeFailedCase(id: string, options: { reason: string; st
       [id]
     );
     await client.query("COMMIT");
+    // Turn-generation outputs live in R2 keyed by deterministic turn.id and
+    // hold non-deterministic model responses. A fresh run writes the same
+    // paths with different bytes, so the immutable write would 412, and the
+    // stale .sha256 pointers would make the next tree read throw
+    // "Conflicting immutable artifact hashes". Delete them AFTER the DB
+    // commit succeeds so a failed blob delete does not prevent the DB reset.
+    if (options.deleteTurnBlobs) {
+      try { await options.deleteTurnBlobs(id); }
+      catch (error) { console.warn("Turn blob cleanup after surgical resume failed; next run may need to be restarted fully:", error); }
+    }
     return "queued";
   } catch (error) {
     await client.query("ROLLBACK");

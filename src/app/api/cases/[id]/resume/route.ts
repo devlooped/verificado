@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { auth0 } from "@/lib/auth0.ts";
 import { isAdmin } from "@/lib/case-access.ts";
 import { startCourtSession } from "@/lib/case-workflow.ts";
+import { deleteCaseTurnBlobs } from "@/evidence/blob.ts";
 import { finishCase, resumeFailedCase } from "@/store.ts";
 
 // Returns true only if both strings are non-empty and byte-equal in constant time.
@@ -37,7 +38,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     return Response.json({ error: "Etapas inválidas." }, { status: 400 });
   }
   const force = body.force === true;
-  const result = await resumeFailedCase(id, { reason, stages, force });
+  const result = await resumeFailedCase(id, { reason, stages, force, deleteTurnBlobs: deleteCaseTurnBlobs });
   if (result === "missing") return Response.json({ error: "Caso no encontrado." }, { status: 404 });
   if (result === "inactive") return Response.json({ error: "El caso no está en estado failed, o tiene state de continuación activo." }, { status: 409 });
   if (result === "active") return Response.json({ error: "El run anterior no se ha asentado; esperá antes de reintentar." }, { status: 409 });

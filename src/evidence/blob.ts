@@ -113,6 +113,28 @@ export async function deleteEvidenceBlobs(keys: string[]): Promise<void> {
   if (keys.length) await deleteObjects(keys);
 }
 
+// Delete the per-turn generation outputs (and their .sha256 pointers) for a
+// case so a surgical resume can re-run turns without colliding with the prior
+// run's non-deterministic model outputs. Preserves the deterministic content:
+// cases/<id>/instruction/sources/*, cases/<id>/instruction/operations/* and
+// their .sha256/* indexes, plus the archived evidence (keyed by run id).
+export async function deleteCaseTurnBlobs(caseId: string): Promise<number> {
+  if (!blobConfigured()) return 0;
+  const prefix = `cases/${encodeURIComponent(caseId)}/`;
+  const turnRoots = ["instruction/runs/", "discussion/"];
+  const all = await listAllObjects(prefix);
+  const keys: string[] = [];
+  for (const object of all) {
+    if (!object.key.startsWith(prefix)) continue;
+    const path = object.key.slice(prefix.length);
+    if (turnRoots.some((root) => path.startsWith(root))) { keys.push(object.key); continue; }
+    const hash = /^\.sha256\/[a-f0-9]{64}\/(.+)\.json$/.exec(path);
+    if (hash && turnRoots.some((root) => hash[1]!.startsWith(root))) keys.push(object.key);
+  }
+  if (keys.length) await deleteObjects(keys);
+  return keys.length;
+}
+
 // List every page before deleting: removing a page while paging can skip objects.
 // IDs include any retired aliases whose old prefixes may still have artifacts.
 export async function deleteCaseBlobs(ids: readonly string[]): Promise<void> {
