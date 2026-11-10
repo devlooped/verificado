@@ -677,6 +677,15 @@ export async function resumeFailedCase(id: string, options: { reason: string; st
       [id, now, reason, stages]
     );
     if (recovered.rowCount === 0) { await client.query("ROLLBACK"); return "no-operations"; }
+    // Phase sessions and sandbox bindings are ephemeral per-turn execution
+    // state tied to the previous workflow run: their recorded sandbox IDs
+    // belong to sandboxes the workflow already revoked at settle, and
+    // saveSandboxBinding refuses to un-revoke them. Clearing them here lets
+    // the new workflow run create fresh sandboxes/bindings while reusing
+    // every ready source operation, every event, and the artifact tree.
+    for (const table of ["case_phase_sessions", "case_sandbox_bindings"]) {
+      await client.query(`DELETE FROM ${table} WHERE case_id = $1`, [id]);
+    }
     await client.query(
       "UPDATE cases SET status = 'queued', error = NULL, revision = revision + 1, workflow_run_id = NULL, stopped_workflow_run_id = NULL WHERE id = $1",
       [id]
