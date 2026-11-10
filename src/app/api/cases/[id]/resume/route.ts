@@ -1,15 +1,29 @@
+import { timingSafeEqual } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { auth0 } from "@/lib/auth0.ts";
 import { isAdmin } from "@/lib/case-access.ts";
 import { startCourtSession } from "@/lib/case-workflow.ts";
 import { finishCase, resumeFailedCase } from "@/store.ts";
 
+// Returns true only if both strings are non-empty and byte-equal in constant time.
+function bearerMatchesEnv(presented: string | null, envValue: string | undefined): boolean {
+  if (!presented || !envValue) return false;
+  const a = Buffer.from(presented);
+  const b = Buffer.from(envValue);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }): Promise<Response> {
-  const session = await auth0.getSession();
-  const user = session?.user;
-  if (!user?.sub) return Response.json({ error: "Iniciá sesión." }, { status: 401 });
-  if (!isAdmin(user)) return Response.json({ error: "No autorizado." }, { status: 403 });
-  if (request.headers.get("origin") !== new URL(request.url).origin) return Response.json({ error: "Origen no autorizado." }, { status: 403 });
+  const bearer = request.headers.get("authorization")?.match(/^Bearer\s+(\S+)/i)?.[1] ?? null;
+  const tokenAuthorized = bearerMatchesEnv(bearer, process.env.RECOVERY_ADMIN_TOKEN);
+  if (!tokenAuthorized) {
+    const session = await auth0.getSession();
+    const user = session?.user;
+    if (!user?.sub) return Response.json({ error: "Iniciá sesión." }, { status: 401 });
+    if (!isAdmin(user)) return Response.json({ error: "No autorizado." }, { status: 403 });
+    if (request.headers.get("origin") !== new URL(request.url).origin) return Response.json({ error: "Origen no autorizado." }, { status: 403 });
+  }
   const { id } = await context.params;
   if (!/^[A-Za-z0-9_-]{1,128}$/.test(id)) return Response.json({ error: "Caso inválido." }, { status: 400 });
   let body: { reason?: unknown; stages?: unknown };
