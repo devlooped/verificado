@@ -638,10 +638,11 @@ export async function restartCase(id: string, deleteBlobs: (ids: string[]) => Pr
 // wiping events, aliases, sessions, bindings, or the artifact tree. Preserves
 // every ready operation so a new workflow run reuses them. Fails closed unless
 // the previous workflow run is settled and continuation state is clean.
-export async function resumeFailedCase(id: string, options: { reason: string; stages?: readonly string[] }): Promise<"queued" | "missing" | "inactive" | "active" | "no-operations"> {
+export async function resumeFailedCase(id: string, options: { reason: string; stages?: readonly string[]; force?: boolean }): Promise<"queued" | "missing" | "inactive" | "active" | "no-operations"> {
   const reason = options.reason.trim();
   if (!reason) throw new Error("Recovery requires an explicit reason");
   const stages = options.stages?.length ? [...options.stages] : null;
+  const force = !!options.force;
   const client = await (await db()).connect();
   try {
     await client.query("BEGIN");
@@ -676,7 +677,7 @@ export async function resumeFailedCase(id: string, options: { reason: string; st
        RETURNING operation_key`,
       [id, now, reason, stages]
     );
-    if (recovered.rowCount === 0) { await client.query("ROLLBACK"); return "no-operations"; }
+    if (recovered.rowCount === 0 && !force) { await client.query("ROLLBACK"); return "no-operations"; }
     // Phase sessions and sandbox bindings are ephemeral per-turn execution
     // state tied to the previous workflow run: their recorded sandbox IDs
     // belong to sandboxes the workflow already revoked at settle, and

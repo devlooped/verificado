@@ -19,6 +19,7 @@ const { values } = parseArgs({
     case: { type: "string" },
     reason: { type: "string" },
     stages: { type: "string" },
+    force: { type: "boolean", default: false },
     base: { type: "string", default: "https://che.bot" },
   },
 });
@@ -37,6 +38,7 @@ const url = `${base}/api/cases/${encodeURIComponent(values.case)}/resume`;
 const stages = values.stages?.split(",").map((s) => s.trim()).filter(Boolean);
 const payload: Record<string, unknown> = { reason: values.reason };
 if (stages?.length) payload.stages = stages;
+if (values.force) payload.force = true;
 
 const headers: Record<string, string> = {
   "content-type": "application/json",

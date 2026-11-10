@@ -26,7 +26,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   }
   const { id } = await context.params;
   if (!/^[A-Za-z0-9_-]{1,128}$/.test(id)) return Response.json({ error: "Caso inválido." }, { status: 400 });
-  let body: { reason?: unknown; stages?: unknown };
+  let body: { reason?: unknown; stages?: unknown; force?: unknown };
   try { body = await request.json(); } catch { return Response.json({ error: "JSON inválido." }, { status: 400 }); }
   const reason = typeof body.reason === "string" ? body.reason.trim() : "";
   if (!reason) return Response.json({ error: "Falta el motivo del recovery." }, { status: 400 });
@@ -36,7 +36,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (Array.isArray(body.stages) && stages!.length !== body.stages.length) {
     return Response.json({ error: "Etapas inválidas." }, { status: 400 });
   }
-  const result = await resumeFailedCase(id, { reason, stages });
+  const force = body.force === true;
+  const result = await resumeFailedCase(id, { reason, stages, force });
   if (result === "missing") return Response.json({ error: "Caso no encontrado." }, { status: 404 });
   if (result === "inactive") return Response.json({ error: "El caso no está en estado failed, o tiene state de continuación activo." }, { status: 409 });
   if (result === "active") return Response.json({ error: "El run anterior no se ha asentado; esperá antes de reintentar." }, { status: 409 });
