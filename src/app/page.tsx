@@ -133,10 +133,6 @@ export default async function Home() {
   const covers = await coverVersions(cases.map((c) => c.id));
   return (
     <section className="pt-8">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h1 className="font-display text-4xl">Casos recientes</h1>
-        <p className="text-xs text-ink-soft">Tocá el voto de cada IA para leer su fundamento.</p>
-      </div>
       {cases.length === 0 ? (
         <p className="mt-4 text-ink-soft">
           Todavía no hay casos.{" "}
