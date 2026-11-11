@@ -8,6 +8,12 @@ export class SandboxCleanupBlockedError extends Error {
 }
 
 export function assertSandboxCleanupSafe(): void {
+  // Temporary opt-out for administrative cleanup of expert cases.
+  // Leaves sandboxes/snapshots behind; `purge-sandbox-snapshots.ts` reclaims them.
+  if (process.env.UNSAFE_CASE_DELETE === "1") {
+    console.warn("UNSAFE_CASE_DELETE=1: bypassing sandbox cleanup guard; sandboxes/snapshots may be orphaned.");
+    return;
+  }
   throw new SandboxCleanupBlockedError();
 }
 
