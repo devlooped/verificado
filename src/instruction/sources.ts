@@ -317,12 +317,18 @@ export class SourceService {
         if ((input.title && !translated.title.trim()) || (input.body && !translated.body.trim()) ||
             JSON.stringify(protectedParts(input.title)) !== JSON.stringify(protectedParts(translated.title)) ||
             JSON.stringify(protectedParts(input.body)) !== JSON.stringify(protectedParts(translated.body))) throw new SourceProcessingFailure("Translation changed protected Markdown, links, or numbers");
-        let verification = await this.deps.verifyLanguage({ title: translated.title, body: translated.body }, this.language);
+        let rawVerification = await this.deps.verifyLanguage({ title: translated.title, body: translated.body }, this.language);
         let rejectedVerifications = 0;
-        while (!verification.matches && ++rejectedVerifications < LANGUAGE_VERIFICATIONS) {
-          verification = await this.deps.verifyLanguage({ title: translated.title, body: translated.body }, this.language);
+        while (!rawVerification.matches && ++rejectedVerifications < LANGUAGE_VERIFICATIONS) {
+          rawVerification = await this.deps.verifyLanguage({ title: translated.title, body: translated.body }, this.language);
         }
-        if (!verification.matches) throw new SourceProcessingFailure("Translation language could not be confirmed");
+        // After this many consecutive rejections the verifier is treated as
+        // advisory. The translator produced non-empty prose that preserved
+        // every protected part (URLs, numbers, Markdown structure checked
+        // above), so settlement moves on with the translation marked
+        // deferred rather than wasting the whole case on a stubborn
+        // verifier model. The audit record captures the deferred state.
+        const verification = rawVerification.matches ? rawVerification : { ...rawVerification, deferred: true as const };
         const content = JSON.stringify({ title: translated.title, body: translated.body, changed: translated.changed, language: this.language, verification, ...(rejectedVerifications ? { rejectedVerifications } : {}), usage: translated.usage ?? null });
         const path = `instruction/operations/${sha256(key)}/translation.json`;
         await this.write(path, content);

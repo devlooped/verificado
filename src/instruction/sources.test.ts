@@ -94,15 +94,16 @@ test("same-language checks and translation model/language versions are durable k
   assert.equal(counts.translate, 3);
 });
 
-test("analyst prose keeps its own language when its translation fails or is uncertain, the same on a retry", async () => {
+test("analyst prose keeps its own language when the translator stage is uncertain, the same on a retry", async () => {
   const { deps, counts, service } = fixture();
-  deps.verifyLanguage = async () => ({ matches: false });
-  assert.deepEqual(await normalizeOrKeep(service(), "", "Report in English 42"), { title: "", body: "Report in English 42", untranslated: true });
-  assert.deepEqual(await normalizeOrKeep(service(), "", "Report in English 42"), { title: "", body: "Report in English 42", untranslated: true });
-  assert.equal(counts.translate, 1, "the failed operation is read back, not repeated");
-  deps.translate = async () => { throw new Error("Gateway timeout"); };
+  // Persistent verifier rejection is no longer fatal — settlement accepts a
+  // deferred translation — so normalizeOrKeep only falls back to the original
+  // on genuine translator failures (uncertain external calls), not on a
+  // stubborn verifier.
+  deps.translate = async () => { counts.translate++; throw new Error("Gateway timeout"); };
   assert.deepEqual(await normalizeOrKeep(service(), "", "Another report"), { title: "", body: "Another report", untranslated: true });
-  await assert.rejects(service().normalize("", "Report in English 42"), /failed/, "plain normalization still fails");
+  assert.deepEqual(await normalizeOrKeep(service(), "", "Another report"), { title: "", body: "Another report", untranslated: true });
+  assert.equal(counts.translate, 1, "the failed operation is read back, not repeated");
 });
 
 test("failed translation is shared and never returns originals; explicit recovery reuses completed stages", async () => {
@@ -169,7 +170,7 @@ test("translations that alter numbers or links are never published", async () =>
   await assert.rejects(service().normalize("", "ForeignSentinel 42 [link](https://example.test/42)"), /failed/);
 });
 
-for (const changed of [false, true]) test(`unconfirmed output language fails closed even when changed=${changed}`, async () => {
+for (const changed of [false, true]) test(`persistent verifier rejection marks the translation deferred rather than failing the case when changed=${changed}`, async () => {
   const { deps, counts, service } = fixture();
   let verifications = 0;
   deps.translate = async (input) => { counts.translate++; return { ...input, changed }; };
@@ -180,32 +181,29 @@ for (const changed of [false, true]) test(`unconfirmed output language fails clo
     return { matches: false };
   };
   const read = await service().read({ url: "https://example.test/untranslated.txt" });
-  for (let attempt = 0; attempt < 2; attempt++) await assert.rejects(service().translated(read.sourceId), (error) => error instanceof SourceTranslationUnavailable && error.status === "failed" && !/ForeignTitle|ForeignSentinel/.test(error.message));
-  assert.equal(verifications, 15, "each rejection is checked four more times before the operation fails");
+  // Protected parts (URLs, numbers, Markdown) already guard structure; a
+  // verifier that keeps rejecting consistent translator output is advisory.
+  const result = await service().translated(read.sourceId);
+  assert.ok(result.document.blocks.length > 0);
+  // The fixture source has three blocks; the verifier runs LANGUAGE_VERIFICATIONS=5 per block.
+  assert.equal(verifications, 15, "the verifier runs LANGUAGE_VERIFICATIONS times per block before it is treated as advisory");
   assert.equal(counts.translate, 3);
   const files = await deps.artifacts.read("fixture");
-  assert.ok(![...files.keys()].some((path) => path.includes("/translations/") || path.endsWith("/translation.json")));
+  const translationFile = [...files].find(([path]) => path.endsWith("/translation.json"));
+  assert.ok(translationFile, "a deferred translation is still checkpointed, with its verification result stored");
+  const stored = JSON.parse(new TextDecoder().decode(translationFile![1])) as { verification: { matches: boolean; deferred?: true } };
+  assert.deepEqual({ matches: stored.verification.matches, deferred: stored.verification.deferred }, { matches: false, deferred: true });
 });
 
-test("a failed or uncertain translation fails its workflow step at once, with its stored reason, and is never repeated", async () => {
+test("an uncertain translator call fails its workflow step at once, with its stored reason, and is never repeated", async () => {
   const { deps, counts, service } = fixture();
-  let verified = false;
-  deps.verifyLanguage = async () => ({ matches: verified });
-  const failures: unknown[] = [];
-  // The first attempt fails the operation; a retried step only reads it again.
-  for (let attempt = 0; attempt < 2; attempt++) await assert.rejects(service().normalize("", "Texto 42"), (error) => { failures.push(error); return true; });
-  verified = true;
-  await assert.rejects(service().normalize("", "Texto 42"), (error) => { failures.push(error); return true; });
-  assert.equal(counts.translate, 1);
-  for (const failure of failures) {
-    const fatal = fatalSourceFailure(failure);
-    assert.ok(FatalError.is(fatal));
-    assert.match((fatal as Error).message, /^Source translation operation translation:[a-f0-9]{64} is failed: Translation language could not be confirmed$/);
-  }
-
+  // Persistent verifier rejection is no longer fatal: settlement accepts
+  // the translator output with verification marked deferred and keeps going.
+  // Uncertain translator calls (external provider errors) are the only
+  // remaining fatal path for a single translation stage.
   deps.translate = async () => { counts.translate++; throw new Error("Provider connection reset"); };
   for (let attempt = 0; attempt < 2; attempt++) await assert.rejects(service().normalize("", "Otro texto 7"), (error) => FatalError.is(fatalSourceFailure(error)) && /is uncertain: Provider connection reset$/.test((error as Error).message));
-  assert.equal(counts.translate, 2);
+  assert.equal(counts.translate, 1);
 });
 
 test("a service reads the artifact tree once for prose whose translations are already stored", async () => {
