@@ -7,7 +7,7 @@ import { REQUEST_PANEL_ID } from "@/lib/request-panel.ts";
 import { ProcessDiagram } from "./process-diagram.tsx";
 
 export const metadata: Metadata = {
-  title: "Método · Che bot, es cierto?",
+  title: "Método · Che bot, ...🤌?",
   description: "Cómo el panel de inteligencias artificiales chequea afirmaciones y responde preguntas.",
 };
 

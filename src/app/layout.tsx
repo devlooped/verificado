@@ -12,7 +12,7 @@ const archivo = Archivo({ subsets: ["latin"], variable: "--font-archivo" });
 const plexMono = IBM_Plex_Mono({ subsets: ["latin"], weight: ["400", "500"], variable: "--font-plex-mono" });
 
 export const metadata: Metadata = {
-  title: "Che bot, es cierto?",
+  title: "Che bot, ...🤌?",
   description: "Un panel de inteligencias artificiales investiga, debate y vota. Sin sesgos humanos.",
 };
 
@@ -48,7 +48,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </div>
           </div>
           <Link href="/" className="mt-2 block text-center">
-            <span className="font-display text-6xl leading-none tracking-tight sm:text-7xl">Che bot, es cierto?</span>
+            <span className="font-display text-6xl leading-none tracking-tight sm:text-7xl">Che bot, ...🤌?</span>
           </Link>
           <p className="mt-1 text-center font-display text-lg italic text-ink-soft">El panel debate. Un moderador desempata. Ningún humano opina.</p>
           <div className="rule-double mt-4" />
