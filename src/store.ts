@@ -536,11 +536,22 @@ export async function withCaseWriteLock<T>(id: string, write: () => Promise<T>, 
 
 // Keep the row locked while validating cleanup, before callbacks or cascades.
 // HTTP checks and a no-op callback cannot authorize losing private references.
-export async function deleteCase(id: string, deleteBlobs: (ids: string[]) => Promise<void>): Promise<"deleted" | "missing" | "active"> {
+// A Quick check never opens a sandbox: when its row also holds no sandbox
+// reference at all (current or archived by a rerun), `deleteSandboxFreeBlobs`
+// removes its files without the sandbox cleanup guard. Without that callback,
+// or with any reference, deletion goes through the guard as before.
+export async function deleteCase(id: string, deleteBlobs: (ids: string[]) => Promise<void>, deleteSandboxFreeBlobs?: (ids: string[]) => Promise<void>): Promise<"deleted" | "missing" | "active"> {
   const client = await (await db()).connect();
   try {
     await client.query("BEGIN");
-    const { rows } = await client.query<{ status: CaseStatus; stopped_workflow_run_id: string | null; continuation_generation: number; retry_contract_version: string | null }>("SELECT status, stopped_workflow_run_id, continuation_generation, retry_contract_version FROM cases WHERE id = $1 FOR UPDATE", [id]);
+    const { rows } = await client.query<{ status: CaseStatus; stopped_workflow_run_id: string | null; continuation_generation: number; retry_contract_version: string | null; sandbox_free: boolean | null }>(
+      `SELECT status, stopped_workflow_run_id, continuation_generation, retry_contract_version,
+         submission->>'check' = 'quick'
+         AND NOT EXISTS (SELECT 1 FROM case_sandbox_bindings b WHERE b.case_id = cases.id)
+         AND NOT EXISTS (SELECT 1 FROM case_phase_sessions s WHERE s.case_id = cases.id AND s.body->>'sandboxId' IS NOT NULL)
+         AND NOT EXISTS (SELECT 1 FROM case_rerun_resources r WHERE r.case_id = cases.id AND (jsonb_array_length(COALESCE(r.body->'bindings', '[]'::jsonb)) > 0 OR EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(r.body->'sessions', '[]'::jsonb)) e WHERE e->'body'->>'sandboxId' IS NOT NULL)))
+         AS sandbox_free
+       FROM cases WHERE id = $1 FOR UPDATE`, [id]);
     if (!rows.length) {
       await client.query("ROLLBACK");
       return "missing";
@@ -549,13 +560,14 @@ export async function deleteCase(id: string, deleteBlobs: (ids: string[]) => Pro
       await client.query("ROLLBACK");
       return "active";
     }
-    assertSandboxCleanupSafe();
+    const removeBlobs = rows[0].sandbox_free === true && deleteSandboxFreeBlobs ? deleteSandboxFreeBlobs : deleteBlobs;
+    if (removeBlobs === deleteBlobs) assertSandboxCleanupSafe();
     if (rows[0]!.stopped_workflow_run_id && !await stoppedRunSettled(rows[0]!.stopped_workflow_run_id)) {
       await client.query("ROLLBACK");
       return "active";
     }
     const aliases = await client.query<{ old_id: string }>("SELECT old_id FROM case_aliases WHERE case_id = $1", [id]);
-    await deleteBlobs([id, ...aliases.rows.map((row) => row.old_id)]);
+    await removeBlobs([id, ...aliases.rows.map((row) => row.old_id)]);
     await client.query("DELETE FROM cases WHERE id = $1", [id]);
     await client.query("COMMIT");
     return "deleted";

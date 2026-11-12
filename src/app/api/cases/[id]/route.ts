@@ -17,7 +17,8 @@ function bearerMatchesEnv(presented: string | null, envValue: string | undefined
 export async function DELETE(request: Request, context: { params: Promise<{ id: string }> }): Promise<Response> {
   const { id } = await context.params;
   const bearer = request.headers.get("authorization")?.match(/^Bearer\s+(\S+)/i)?.[1] ?? null;
-  const remove = (caseId: string) => deleteCase(caseId, withSandboxCleanup(deleteCaseBlobs));
+  // A Quick check with no sandbox reference skips the sandbox cleanup guard.
+  const remove = (caseId: string) => deleteCase(caseId, withSandboxCleanup(deleteCaseBlobs), deleteCaseBlobs);
   let response: Response;
   if (bearerMatchesEnv(bearer, process.env.RECOVERY_ADMIN_TOKEN)) {
     response = await performCaseDeletion(id, remove);
