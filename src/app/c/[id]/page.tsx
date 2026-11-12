@@ -64,7 +64,7 @@ function InSession({ c, events, activities }: { c: StoredCaseRecord; events: Rec
       <blockquote className="mx-auto mt-5 line-clamp-3 max-w-lg break-words font-display text-2xl italic leading-snug text-ink">«{submissionExcerpt(c.submission)}»</blockquote>
       <p className="mt-2 text-sm text-ink-soft"> - <time dateTime={caseDate(c.createdAt)}>{formatCaseDate(caseDate(c.createdAt), c.submission.resolvedLanguage ?? (c.submission.language && c.submission.language !== "auto" ? c.submission.language : "es"))}</time></p>
       <p className="mx-auto mt-4 max-w-md text-ink-soft">
-        {COUNSEL_NAMES} {check === "quick" ? "están respondiendo tu consulta, cada uno con su propia búsqueda" : "están investigando y debatiendo tu consulta"}. Podés seguir el diálogo abajo; cuando terminen vas a ver el resultado y el registro completo.
+        {COUNSEL_NAMES} están respondiendo tu consulta, cada uno con su propia búsqueda. Podés seguir el diálogo abajo; cuando terminen vas a ver el resultado y el registro completo.
       </p>
       <SessionProgress events={events} queued={c.status === "queued"} check={check} identifyClaims={c.submission.identifyClaims} collectionProgress={c.pipelineVersion === 4 || c.pipelineVersion === 5} />
       <p className="mx-auto mt-6 max-w-md text-xs text-ink-soft">
@@ -118,6 +118,7 @@ async function ResolvedCase({ c, id, revision }: { c: CaseRecord; id: string; re
   const view = project(events);
   const models = seatModels(c, events);
   const quick = checkType(c.submission) === "quick";
+  const questions = view.contentKind === "questions";
 
   return (
     <div className="case-enter">
@@ -133,7 +134,7 @@ async function ResolvedCase({ c, id, revision }: { c: CaseRecord; id: string; re
       <section className="mt-16">
         <div className="rule-double pt-4">
           <h2 className="font-display text-4xl">{quick ? "Respuestas de los analistas" : "Registro del debate"}</h2>
-          <p className="mt-1 text-sm text-ink-soft">{quick ? "Cada respuesta completa, con las fuentes que citó su proveedor, y luego los votos." : "Todo lo que pasó en el debate, completo y en orden."}</p>
+          <p className="mt-1 text-sm text-ink-soft">{questions ? "Cada respuesta completa, con las fuentes que citó su proveedor." : quick ? "Cada respuesta completa, con las fuentes que citó su proveedor, y luego los votos." : "Todo lo que pasó en el debate, completo y en orden."}</p>
         </div>
         <div className="mt-8">
           <Case events={events} view={view} caseId={id} sourceAliases={aliases} models={models} />

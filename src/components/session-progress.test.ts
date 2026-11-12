@@ -4,7 +4,7 @@ import { parseHTML } from "linkedom";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { CourtEvent } from "../domain/court.ts";
-import { PROGRESS_STEPS, QUICK_PROGRESS_STEPS, quickStage, SessionProgress, sessionStage } from "./session-progress.tsx";
+import { PROGRESS_STEPS, QUESTIONS_PROGRESS_STEPS, QUICK_PROGRESS_STEPS, quickStage, SessionProgress, sessionStage } from "./session-progress.tsx";
 
 const claims: CourtEvent = { type: "claims_entered", claims: [{ id: "A1", quote: "q", text: "t" }, { id: "A2", quote: "r", text: "u" }] };
 
@@ -64,4 +64,17 @@ test("optional Quick claims add identification before answers and individual vot
   assert.match(render([]).toString(), /moderador está identificando/);
   assert.match(render([claims]).querySelector('[role="status"]')!.textContent!, /Etapa 2 de 3: Respuestas/);
   assert.equal(render([], true).querySelector('[aria-current="step"]'), null);
+});
+
+test("questions progress from the answers to the moderator's synthesis, without a result stage", () => {
+  const classified: CourtEvent = { type: "content_classified", kind: "questions" };
+  const progress = (events: CourtEvent[]) => parseHTML(renderToStaticMarkup(createElement(SessionProgress, { events, queued: false, check: "quick", identifyClaims: true }))).document;
+  const answering = progress([classified]);
+  assert.deepEqual([...answering.querySelectorAll("ol li")].map((li) => li.textContent?.replace(/\s*\(.*\)$/, "")), [...QUESTIONS_PROGRESS_STEPS]);
+  assert.match(answering.querySelector('[role="status"]')!.textContent, /Etapa 1 de 2: Respuestas/);
+  assert.match(answering.toString(), /Los analistas están respondiendo las preguntas/);
+  const synthesizing = progress([classified, { type: "quick_response", by: "grok", text: "Respuesta", sources: [] }]);
+  assert.match(synthesizing.querySelector('[role="status"]')!.textContent, /Etapa 2 de 2: Síntesis/);
+  assert.match(synthesizing.toString(), /El moderador está sintetizando las respuestas/);
+  assert.doesNotMatch(synthesizing.toString(), /Resultado|Afirmaciones|votando/);
 });

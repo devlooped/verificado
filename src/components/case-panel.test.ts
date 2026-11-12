@@ -73,7 +73,8 @@ test("older cases use opening-event seats without inventing support models", () 
   assert.equal(render(c), "", "do not introduce unknown models");
 });
 
-test("the panel names the check type, Expert for cases recorded before check types", () => {
-  assert.match(render(record), /Chequeo experto/);
-  assert.match(render({ ...record, submission: { kind: "text", text: "Una afirmación", check: "quick" } }), /Chequeo rápido/);
+test("the panel names what the panel did, never the disabled Expert check", () => {
+  assert.match(render(record), />Chequeo</);
+  assert.doesNotMatch(render(record), /experto|rápido/i);
+  assert.match(renderToStaticMarkup(createElement(CasePanel, { c: record, models: seatModels(record), label: "Consulta" })), />Consulta</);
 });

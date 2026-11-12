@@ -20,32 +20,28 @@ test("the form uses native radios and visible labels, and keeps every kind mount
     const label = document.querySelector('label[for="' + input.id + '"]')!;
     assert.ok(label && !label.className.includes("sr-only"), name + " has a visible label");
   }
-  const sets = [...document.querySelectorAll("fieldset")].slice(2);
+  const sets = [...document.querySelectorAll("fieldset")].slice(1);
   assert.deepEqual(sets.map((f) => f.hasAttribute("disabled")), [false, true, true]);
   assert.deepEqual(sets.map((f) => f.hasAttribute("hidden")), [false, true, true]);
 });
 
-test("the check type defaults to Rápido, before Experto, with a hint for the chosen one", () => {
-  const { document } = parseHTML(renderToStaticMarkup(createElement(RequestForm)));
-  const checks = [...document.querySelectorAll('input[type="radio"][name="check"]')];
-  assert.deepEqual(checks.map((r) => r.getAttribute("value")), ["quick", "expert"]);
-  assert.deepEqual(checks.map((r) => r.hasAttribute("checked")), [true, false]);
-  assert.deepEqual(checks.map((r) => r.parentElement!.textContent!.trim()), ["Rápido", "Experto"]);
-  const fieldset = checks[0].closest("fieldset")!;
-  assert.equal(fieldset.querySelector("legend")!.textContent, "Tipo de chequeo");
-  assert.equal(document.getElementById(fieldset.getAttribute("aria-describedby")!)!.textContent, "Cada analista responde y vota; sin debate.");
+test("the form offers no check type: the Expert check is disabled", () => {
+  for (const user of [undefined, { sub: "user", roles: ["Admin"] }]) {
+    const { document } = parseHTML(renderToStaticMarkup(createElement(RequestForm, { user })));
+    assert.equal(document.querySelector('[name="check"]'), null);
+    assert.doesNotMatch(document.toString(), /Tipo de chequeo|Experto|Rápido/);
+  }
 });
 
-test("independent claims are an accessible unchecked option inside the Quick check selector", () => {
+test("independent claims are an accessible unchecked option", () => {
   const { document } = parseHTML(renderToStaticMarkup(createElement(RequestForm, { user: { sub: "user", roles: ["Contrib"] } })));
   const option = document.querySelector<HTMLInputElement>('input[type="checkbox"][name="identifyClaims"]')!;
   assert.ok(option);
   assert.ok(!option.hasAttribute("checked"));
   assert.ok(!option.hasAttribute("disabled"));
-  assert.equal(option.closest("fieldset")?.querySelector("legend")?.textContent, "Tipo de chequeo");
   assert.equal(document.querySelector(`label[for="${option.id}"]`)?.textContent?.trim(), "Identificar afirmaciones independientes");
   const hint = document.getElementById(option.getAttribute("aria-describedby")!)!;
-  assert.match(hint.textContent!, /cada una y el contenido completo, sin debate/);
+  assert.match(hint.textContent!, /cada una y el contenido completo, sin debate\. No se aplica a preguntas/);
 });
 
 test("independent claims are only rendered for authenticated Contrib or Admin roles", () => {
@@ -57,7 +53,7 @@ test("independent claims are only rendered for authenticated Contrib or Admin ro
     { sub: "user", roles: ["contrib"] }, { sub: "user", roles: ["admin"] }, { sub: "user", roles: "Admin" }, { sub: "user", roles: ["SuperAdmin"] }]) {
     const { document } = parseHTML(renderToStaticMarkup(createElement(RequestForm, { user })));
     assert.equal(document.querySelector('[name="identifyClaims"]'), null);
-    assert.ok(document.querySelector('input[name="check"][value="quick"]'), "ordinary Quick checks stay available");
+    assert.ok(document.querySelector('button[type="submit"]'), "ordinary checks stay available");
   }
 });
 

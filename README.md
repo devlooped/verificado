@@ -58,13 +58,35 @@ process, provider API keys, or X OAuth connection is required.
 
 ## Court procedure
 
-A request is checked either **Quick** (Rápido, the default on the request form)
-or **Expert** (Experto). The type is stored with the submission as `check`;
-cases recorded before it read as Expert, and a rerun keeps the type.
+Every new request is a **Quick** check: the **Expert** check is disabled and
+hidden from the interface. The request form offers no type, the server refuses any
+`check` other than `quick`, and a rerun or a recovery of an Expert case is refused
+before anything is deleted (a workflow started for one fails at once). The type is
+still stored with the submission as `check`; cases recorded before it read as
+Expert, and their records still display, without naming the check type.
 
-### Quick check
+### Claims or questions
 
-A Quick check has no claims, instruction, source review, debate, objections or
+A Quick check opens with the moderator classifying the material, without
+researching or answering it: **claims** (a news item, a post, a statement, or a
+request to verify one, "is it true that...?") or **questions** that the panel is
+asked to answer. The classification is recorded as `content_classified`. When the
+moderator cannot classify the material in two attempts, it is checked as claims,
+without that event; cases recorded before the classification are claims too.
+
+Questions are not checked and receive no rating at all, neither each question nor
+the whole: no claims are identified (even when the request asked for it), and
+nobody votes. Each analyst answers `QUESTION: <content>` with its own search,
+like a Quick answer; a seat without an answer after two attempts is recorded as
+absent. With at least three answers, the moderator writes a synthesis from the
+answers alone, without tools, recorded as `answer_synthesis`: the majority's
+answer when at least three analysts substantially agree on every question
+(`majority: true`), otherwise each position and who holds it (`majority: false`).
+Fewer than three answers, or a synthesis that fails twice, fail the case.
+
+### Quick check of claims
+
+A Quick check of claims has no instruction, instruction, source review, debate, objections or
 moderator summary. Each of the four analysts, in parallel, receives the case
 language rule and `FACT CHECK: <content>` (a link with the submitter's note, or
 the image with its note), answers in prose using its provider's own web search
@@ -85,6 +107,8 @@ case always uses the shared storage version, even under
 `COURT_PIPELINE_VERSION=1`, and needs only Blob storage and the AI Gateway key.
 
 ### Expert check
+
+Disabled for new cases (see above); described here for the cases recorded with it.
 
 After the moderator identifies the claims, the court opens **instrucción**, a
 stage exclusively for evidence. Every analyst must actively search for evidence

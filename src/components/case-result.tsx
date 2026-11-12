@@ -1,4 +1,4 @@
-import { caseOutcome, contentOutcome, VERDICT_LABEL } from "@/domain/case.ts";
+import { caseKindLabel, caseOutcome, contentOutcome, VERDICT_LABEL } from "@/domain/case.ts";
 import { checkType, COUNSEL, MODEL_NAME, seatModels, type CaseRecord, type CaseView, type ClaimView, type RecordedEvent, type SeatModels } from "@/domain/court.ts";
 import { caseDate, formatCaseDate } from "@/domain/case-date.ts";
 import { Cited, citationRefs, type Citations } from "./citations.tsx";
@@ -74,11 +74,13 @@ function Original({ c, view, models, citations, combined = false }: { c: CaseRec
   const claims = view.claims;
   const outcome = contentOutcome(view);
   const quick = checkType(s) === "quick";
+  // Questions are answered, not rated: no votes to show.
+  const questions = view.contentKind === "questions";
   return (
     <figure className={combined ? "min-w-0" : "min-w-0 rounded-sm border border-rule bg-paper/60 p-5"}>
       <figcaption className="mb-5 flex flex-wrap items-center gap-3">
         <span className="grid size-9 shrink-0 place-items-center rounded-sm border border-rule text-celeste-deep"><MegaphoneIcon className="size-5" /></span>
-        <span className="font-display text-2xl">{quick ? "Chequeo Rápido" : "Chequeo Experto"}</span>
+        <span className="font-display text-2xl">{caseKindLabel(view)}</span>
         {outcome ? (
           <span className={"ml-auto inline-flex items-center gap-1.5 text-right font-display text-xl " + VERDICT_TEXT[outcome.verdict]} aria-label={"Resultado del contenido completo: " + VERDICT_LABEL[outcome.verdict]}>
             <VerdictDot verdict={outcome.verdict} /> {VERDICT_LABEL[outcome.verdict]}
@@ -116,7 +118,7 @@ function Original({ c, view, models, citations, combined = false }: { c: CaseRec
           </ul>
         </details>
       )}
-      {quick && (
+      {quick && !questions && (
         <div className="mt-4 flex flex-wrap items-center justify-end gap-3" role="group" aria-label="Votos de los analistas sobre el contenido">
           {COUNSEL.map((by) => {
             const vote = view.contentVotes[by];
@@ -208,7 +210,7 @@ export function CaseResult({ c, view, events = [], models = seatModels(c, events
               <Original c={c} view={view} models={models} citations={citations} combined />
             </ClaimCard>
           ) : <Original c={c} view={view} models={models} citations={citations} />}
-          <CasePanel c={c} models={models} costs={costs} />
+          <CasePanel c={c} models={models} costs={costs} label={caseKindLabel(view)} />
         </div>
         {view.dismissal ? (
           <p className="flex items-start gap-3 rounded-sm border border-seal/40 bg-seal/5 p-5">
@@ -245,7 +247,18 @@ export function CaseResult({ c, view, events = [], models = seatModels(c, events
           </section>
         )}
       </div>
-      {!view.dismissal && (view.summary || tieBreaks.length > 0 || (quick && c.status === "resolved")) && (
+      {view.contentKind === "questions" ? (
+        <section aria-labelledby="case-summary-title" className="mt-8 rule-double pt-5">
+          <h2 id="case-summary-title" className="font-display text-3xl">Síntesis del panel</h2>
+          {view.synthesis ? (
+            <>
+              <p className="mt-1 text-xs text-ink-soft">Por el moderador · {view.synthesis.majority ? "Opinión mayoritaria de los analistas" : "Sin mayoría: posiciones de los analistas"}</p>
+              <p className="mt-3 whitespace-pre-line leading-relaxed"><Cited text={view.synthesis.text} ctx={citations} /></p>
+            </>
+          ) : <p className="mt-3 text-sm text-ink-soft">No hay síntesis del moderador registrada para esta consulta.</p>}
+          <p className="mt-3 text-xs text-ink-soft">Las preguntas no se califican: el panel responde y el moderador sintetiza sus respuestas.</p>
+        </section>
+      ) : !view.dismissal && (view.summary || tieBreaks.length > 0 || (quick && c.status === "resolved")) && (
         <section aria-labelledby="case-summary-title" className="mt-8 rule-double pt-5">
           <h2 id="case-summary-title" className="font-display text-3xl">Resumen del caso</h2>
           {(view.summary || tieBreaks.length > 0) && <p className="mt-1 text-xs text-ink-soft">Por el moderador</p>}

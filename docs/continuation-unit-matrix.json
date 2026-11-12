@@ -1658,6 +1658,38 @@
       ]
     },
     {
+      "id": "quick.classify",
+      "routes": ["quick:1", "quick:2", "quick:3", "quick:4", "quick:5"],
+      "dependsOn": ["case.language"],
+      "key": "quick/judge/classify/attempt/request-hash",
+      "result": "QuickClassification claims o questions y at; sólo en workflows iniciados con classifyContent; hasta 2 intentos, sin clasificación el material es claims",
+      "effects": ["model", "artifact", "sql"],
+      "evidence": [
+        { "file": "src/workflows/court-session.ts", "symbol": "classifyQuick" },
+        { "file": "src/court/quick-play.ts", "symbol": "quickClassify" }
+      ],
+      "gaps": ["G01", "G03", "G04", "G06"],
+      "workflowSteps": [
+        { "file": "src/workflows/court-session.ts", "symbol": "classifyQuick" }
+      ]
+    },
+    {
+      "id": "quick.synthesis",
+      "routes": ["quick:1", "quick:2", "quick:3", "quick:4", "quick:5"],
+      "dependsOn": ["quick.classify", "quick.answer"],
+      "key": "quick/judge/synthesis/attempt/request-hash",
+      "result": "QuickSynthesis no vacía con majority sobre al menos tres respuestas a preguntas; sin votos ni calificación; hasta 2 intentos",
+      "effects": ["model", "artifact", "sql"],
+      "evidence": [
+        { "file": "src/workflows/court-session.ts", "symbol": "synthesizeQuick" },
+        { "file": "src/court/quick-play.ts", "symbol": "quickSynthesize" }
+      ],
+      "gaps": ["G01", "G03", "G04", "G06"],
+      "workflowSteps": [
+        { "file": "src/workflows/court-session.ts", "symbol": "synthesizeQuick" }
+      ]
+    },
+    {
       "id": "quick.publish",
       "routes": [
         "quick:1",

@@ -27,7 +27,8 @@ test("authorized POST rerun with unproved run inactivity preserves all state and
   t.mock.method(auth0, "getSession", async () => ({ user: { sub: "user", roles: ["Admin"] } } as unknown as Awaited<ReturnType<typeof auth0.getSession>>));
   const queries: string[] = [];
   t.mock.method(Pool.prototype, "query", (async (sql: string) => {
-    assert.ok(sql.startsWith("CREATE TABLE") || sql.startsWith("SELECT case_id, seq, body FROM events"), sql);
+    // The check type is read first: an Expert case cannot run again.
+    assert.ok(sql.startsWith("CREATE TABLE") || sql.startsWith("SELECT case_id, seq, body FROM events") || sql === "SELECT * FROM cases WHERE id = $1", sql);
     return { rows: [] };
   }) as unknown as typeof Pool.prototype.query);
   t.mock.method(Pool.prototype, "connect", (async () => ({

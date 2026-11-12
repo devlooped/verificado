@@ -1,6 +1,5 @@
 import { MODEL_ROLES } from "@/court/models.ts";
-import { CHECK_LABEL } from "@/domain/case.ts";
-import { checkType, COUNSEL, modelDetail, type CaseRecord, type ModelUse, type SeatModels } from "@/domain/court.ts";
+import { COUNSEL, modelDetail, type CaseRecord, type ModelUse, type SeatModels } from "@/domain/court.ts";
 import { GavelIcon, ModelName } from "./marks.tsx";
 import { CaseCost } from "./case-cost.tsx";
 import type { CaseCosts } from "../domain/cost.ts";
@@ -24,7 +23,7 @@ function PanelMember({ role, model }: { role: string; model: ModelUse }) {
 }
 
 // The snapshot is a configuration, not a claim that every optional support role ran.
-export function CasePanel({ c, models, costs }: { c: CaseRecord; models: SeatModels; costs?: CaseCosts }) {
+export function CasePanel({ c, models, costs, label = "Chequeo" }: { c: CaseRecord; models: SeatModels; costs?: CaseCosts; label?: string }) {
   const analysts = COUNSEL.flatMap((seat) => models[seat] ? [{ seat, model: models[seat]! }] : []);
   const support = MODEL_ROLES.filter((role) => role.group === "Soporte" && (role.key !== "image.description" || c.submission.kind === "image"))
     .flatMap((role) => c.models?.[role.key] ? [{ role, model: c.models[role.key]! }] : []);
@@ -36,7 +35,7 @@ export function CasePanel({ c, models, costs }: { c: CaseRecord; models: SeatMod
         <span className="grid size-9 shrink-0 place-items-center rounded-sm border border-rule text-seal"><GavelIcon className="size-5" /></span>
         <div>
           <h2 id="case-panel-title" className="font-display text-2xl">Panel</h2>
-          <p className="font-mono text-[10px] text-ink-soft">{CHECK_LABEL[checkType(c.submission)]}</p>
+          <p className="font-mono text-[10px] text-ink-soft">{label}</p>
         </div>
       </div>
       <dl className="mt-4 space-y-3">

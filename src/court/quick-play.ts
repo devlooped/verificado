@@ -8,7 +8,7 @@ import { mockInstructionArtifacts } from "../instruction/mock.ts";
 import { getImage, saveCaseAuditRecord } from "../store.ts";
 import { createQuickMockModel } from "./mock.ts";
 import { courtMaxOutputTokens, MOCK_MODEL_ID, modelEffort, withoutEffort, type CourtModel, type CourtOutputPhase } from "./models.ts";
-import { quickClaimsPrompt, quickClaimsSchema, quickPrompt, quickSummaryPrompt, quickTiebreakPrompt, quickTiebreakSchema, quickVoteMessages, quickVoteSchema, type QuickAnswer, type QuickClaims, type QuickDecision, type QuickEntry, type QuickFailure, type QuickImage, type QuickMajority, type QuickSummary, type QuickVote } from "./quick.ts";
+import { quickClaimsPrompt, quickClaimsSchema, quickClassificationSchema, quickClassifyPrompt, quickPrompt, quickSummaryPrompt, quickSynthesisPrompt, quickSynthesisSchema, quickTiebreakPrompt, quickTiebreakSchema, quickVoteMessages, quickVoteSchema, type QuickAnswer, type QuickClaims, type QuickClassification, type QuickDecision, type QuickEntry, type QuickFailure, type QuickImage, type QuickMajority, type QuickResponse, type QuickSummary, type QuickSynthesis, type QuickVote } from "./quick.ts";
 
 // The live calls of a Quick check, one per workflow step. Each writes its
 // request and result to the case artifacts and a model_step audit record, so
@@ -30,11 +30,12 @@ export type QuickPlayDependencies = {
 const live: QuickPlayDependencies = { artifacts: caseArtifactStore, audit: saveCaseAuditRecord, getImage };
 
 // A local simulation (`npm run dev:mock`): files in memory, no audit records, a scripted model.
-export function simulatedQuickDependencies(step: "claims" | "answer" | "vote" | "tiebreak" | "summary"): QuickPlayDependencies {
+export function simulatedQuickDependencies(step: QuickStep): QuickPlayDependencies {
   return { artifacts: mockInstructionArtifacts, audit: async () => {}, getImage, model: createQuickMockModel(step) };
 }
 
 type Seat = Counsel | "judge";
+export type QuickStep = "classify" | "claims" | "answer" | "vote" | "tiebreak" | "summary" | "synthesis";
 type Stored = { at: string; error?: string; text?: string; messages?: ModelMessage[]; usage?: unknown; sources?: QuickSource[]; output?: unknown; finishReason?: string };
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error)).slice(0, 300);
@@ -69,7 +70,7 @@ async function readStored(caseId: string, path: string, deps: QuickPlayDependenc
 // reused, so a completed paid call is not paid again; otherwise the model is
 // called, and its failure is a result too, for the orchestration to retry.
 async function generation(caseId: string, deps: QuickPlayDependencies, call: {
-  seat: Seat; step: "claims" | "answer" | "vote" | "tiebreak" | "summary"; attempt: number; sequence: number; model: CourtModel; claim?: Claim; outputPhase?: CourtOutputPhase;
+  seat: Seat; step: QuickStep; attempt: number; sequence: number; model: CourtModel; claim?: Claim; outputPhase?: CourtOutputPhase;
   request: () => Promise<Record<string, unknown>>; generate: (maxOutputTokens: number) => Promise<Omit<Stored, "at">>;
 }): Promise<Stored> {
   const root = `quick/${call.seat}/${call.claim ? "claims/" + call.claim.id + "/" : ""}${call.step}-${call.attempt}`;
@@ -95,6 +96,30 @@ function citedSources(sources: ReadonlyArray<{ sourceType: string; url?: string;
   return sources.flatMap((s) => s.sourceType === "url" && s.url && !seen.has(s.url) && seen.add(s.url) ? [{ url: s.url, ...(s.title ? { title: s.title } : {}) }] : []);
 }
 
+// The moderator's classification of the material: claims or questions. It
+// reads a submitted link, like the claim identification, and nothing else.
+export async function quickClassify(caseId: string, submission: Submission, model: CourtModel, attempt: number, injected?: QuickPlayDependencies): Promise<QuickClassification | QuickFailure> {
+  const deps = injected ?? live;
+  const prompt = quickClassifyPrompt(submission, await image(caseId, submission, deps));
+  const native = !deps.model && submission.kind === "link" ? nativeTools(model.id) : undefined;
+  const result = await generation(caseId, deps, {
+    seat: "judge", step: "classify", attempt, sequence: 8 + attempt, model, outputPhase: submission.kind === "link" ? "research" : undefined,
+    request: async () => ({ providerOptions: model.providerOptions, system: prompt.system, messages: withoutImages(prompt.messages), tools: native?.definitions ?? [], output: z.toJSONSchema(quickClassificationSchema, { target: "draft-7" }) }),
+    generate: async (maxOutputTokens) => {
+      try {
+        const generated = await generateText({ model: deps.model ?? gateway(model.id), providerOptions: model.providerOptions, system: prompt.system, messages: prompt.messages,
+          ...(native ? { tools: native.tools } : {}), output: Output.object({ schema: quickClassificationSchema }), maxOutputTokens, stopWhen: stepCountIs(1), maxRetries: 0, abortSignal: AbortSignal.timeout(QUICK_ANSWER_MS) });
+        return { output: generated.output, text: generated.text, messages: generated.responseMessages, usage: generated.usage };
+      } catch (error) {
+        if (!NoObjectGeneratedError.isInstance(error)) throw error;
+        return { error: error.message.slice(0, 300), text: error.text ?? "", usage: error.usage };
+      }
+    },
+  });
+  if (result.error) return { error: result.error };
+  return { kind: quickClassificationSchema.parse(result.output).kind, at: result.at };
+}
+
 export async function quickIdentifyClaims(caseId: string, submission: Submission, language: string, model: CourtModel, attempt: number, injected?: QuickPlayDependencies, date?: string): Promise<QuickClaims | QuickFailure> {
   const deps = injected ?? live;
   const prompt = quickClaimsPrompt(submission, language, await image(caseId, submission, deps), date);
@@ -117,9 +142,9 @@ export async function quickIdentifyClaims(caseId: string, submission: Submission
   return { claims: quickClaimsSchema.parse(result.output).claims.map((claim, i) => ({ id: "A" + (i + 1), ...claim })), at: result.at };
 }
 
-export async function quickAnswer(caseId: string, submission: Submission, language: string, model: CourtModel, by: Counsel, attempt: number, injected?: QuickPlayDependencies, claims: readonly Claim[] = [], date?: string): Promise<QuickAnswer | QuickFailure> {
+export async function quickAnswer(caseId: string, submission: Submission, language: string, model: CourtModel, by: Counsel, attempt: number, injected?: QuickPlayDependencies, claims: readonly Claim[] = [], date?: string, questions = false): Promise<QuickAnswer | QuickFailure> {
   const deps = injected ?? live;
-  const prompt = quickPrompt(submission, language, await image(caseId, submission, deps), claims, date);
+  const prompt = quickPrompt(submission, language, await image(caseId, submission, deps), claims, date, questions);
   const native = deps.model ? undefined : nativeTools(model.id);
   const result = await generation(caseId, deps, {
     seat: by, step: "answer", attempt, sequence: attempt, model, outputPhase: "research",
@@ -199,4 +224,28 @@ export async function quickSummarize(caseId: string, language: string, model: Co
   });
   if (result.error || !result.text?.trim()) return { error: result.error ?? "empty summary" };
   return { text: result.text.trim(), at: result.at };
+}
+
+// The moderator's synthesis of the answers to questions, without tools: the
+// majority's answer, or each position when there is none. No rating.
+export async function quickSynthesize(caseId: string, submission: Submission, language: string, model: CourtModel, responses: QuickResponse[], attempt: number, injected?: QuickPlayDependencies, date?: string): Promise<QuickSynthesis | QuickFailure> {
+  const deps = injected ?? live;
+  const prompt = quickSynthesisPrompt(submission, language, responses, await image(caseId, submission, deps), date);
+  const result = await generation(caseId, deps, {
+    seat: "judge", step: "synthesis", attempt, sequence: 10 + attempt, model,
+    request: async () => ({ providerOptions: model.providerOptions, system: prompt.system, messages: withoutImages(prompt.messages), output: z.toJSONSchema(quickSynthesisSchema, { target: "draft-7" }) }),
+    generate: async (maxOutputTokens) => {
+      try {
+        const generated = await generateText({ model: deps.model ?? gateway(model.id), providerOptions: model.providerOptions, system: prompt.system, messages: prompt.messages,
+          output: Output.object({ schema: quickSynthesisSchema }), maxOutputTokens, stopWhen: stepCountIs(1), maxRetries: 0, abortSignal: AbortSignal.timeout(QUICK_ANSWER_MS) });
+        return { output: generated.output, text: generated.text, messages: generated.responseMessages, usage: generated.usage };
+      } catch (error) {
+        if (!NoObjectGeneratedError.isInstance(error)) throw error;
+        return { error: error.message.slice(0, 300), text: error.text ?? "", usage: error.usage };
+      }
+    },
+  });
+  if (result.error) return { error: result.error };
+  const output = quickSynthesisSchema.parse(result.output);
+  return { text: output.synthesis, majority: output.majority, at: result.at };
 }

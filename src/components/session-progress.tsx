@@ -6,6 +6,8 @@ const LEGACY_PROGRESS_STEPS = ["Instrucción", "Crítica de fuentes", "Debate", 
 // A Quick check: the analysts answer, then vote.
 export const QUICK_PROGRESS_STEPS = ["Respuestas", "Resultado"] as const;
 export const QUICK_CLAIMS_PROGRESS_STEPS = ["Afirmaciones", "Respuestas", "Resultado"] as const;
+// Questions: the analysts answer, then the moderator synthesizes; no result.
+export const QUESTIONS_PROGRESS_STEPS = ["Respuestas", "Síntesis"] as const;
 
 const STAGE_OF: Partial<Record<CourtEvent["type"], number>> = {
   source_collection_started: 1,
@@ -39,11 +41,17 @@ export function quickStage(events: readonly Pick<CourtEvent, "type">[], identify
   return sessionStage(events) === 4 ? 2 : events.some((e) => e.type === "claims_entered") ? 1 : 0;
 }
 
+// The answers are recorded together, then the moderator synthesizes them.
+export function questionsStage(events: readonly Pick<CourtEvent, "type">[]): number {
+  return events.some((e) => e.type === "quick_response") ? 1 : 0;
+}
+
 export function SessionProgress({ events, queued, check = "expert", collectionProgress = false, identifyClaims = false }: { events: readonly CourtEvent[]; queued: boolean; check?: CheckType; collectionProgress?: boolean; identifyClaims?: boolean }) {
+  const questions = events.some((e) => e.type === "content_classified" && e.kind === "questions");
   const quick = check === "quick";
-  const steps: readonly string[] = quick ? identifyClaims ? QUICK_CLAIMS_PROGRESS_STEPS : QUICK_PROGRESS_STEPS : collectionProgress ? PROGRESS_STEPS : LEGACY_PROGRESS_STEPS;
+  const steps: readonly string[] = questions ? QUESTIONS_PROGRESS_STEPS : quick ? identifyClaims ? QUICK_CLAIMS_PROGRESS_STEPS : QUICK_PROGRESS_STEPS : collectionProgress ? PROGRESS_STEPS : LEGACY_PROGRESS_STEPS;
   const stage = sessionStage(events);
-  const current = queued ? -1 : quick ? quickStage(events, identifyClaims) : collectionProgress ? stage : Math.max(0, stage - 1);
+  const current = queued ? -1 : questions ? questionsStage(events) : quick ? quickStage(events, identifyClaims) : collectionProgress ? stage : Math.max(0, stage - 1);
   const claims = events.findLast((e) => e.type === "claims_entered")?.claims.length ?? 0;
   const collected = events.findLast((e) => e.type === "source_batch_completed");
   const collection = events.findLast((e) => e.type === "source_collection_started");
@@ -52,7 +60,7 @@ export function SessionProgress({ events, queued, check = "expert", collectionPr
       <p className="sr-only" role="status">
         {queued ? "El caso está en espera." : "Etapa " + (current + 1) + " de " + steps.length + ": " + steps[current] + "."}
       </p>
-      <ol className={"grid gap-2 " + (quick ? identifyClaims ? "grid-cols-3" : "grid-cols-2" : collectionProgress ? "grid-cols-5" : "grid-cols-4")} aria-label="Etapas del análisis">
+      <ol className={"grid gap-2 " + (questions ? "grid-cols-2" : quick ? identifyClaims ? "grid-cols-3" : "grid-cols-2" : collectionProgress ? "grid-cols-5" : "grid-cols-4")} aria-label="Etapas del análisis">
         {steps.map((step, i) => {
           const state = i < current ? "done" : i === current ? "current" : "pending";
           return (
@@ -74,6 +82,8 @@ export function SessionProgress({ events, queued, check = "expert", collectionPr
       <p className="mt-4 text-center text-sm text-ink-soft">
         {queued
           ? "El caso está en espera; el panel lo toma en un momento."
+          : questions
+            ? current === 1 ? "El moderador está sintetizando las respuestas." : "Los analistas están respondiendo las preguntas."
           : quick
             ? identifyClaims && current === 0 ? "El moderador está identificando las afirmaciones." : current === steps.length - 1 ? "Los analistas están votando." : "Los analistas están respondiendo."
           : collectionProgress && current === 1 && collection

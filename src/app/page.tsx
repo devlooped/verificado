@@ -2,7 +2,7 @@ import Link from "next/link";
 import { connection } from "next/server";
 import { submissionExcerpt, VERDICT_LABEL } from "@/domain/case.ts";
 import { caseCardImageUrl } from "@/domain/case-card.ts";
-import { COUNSEL, MODEL_NAME, project, seatModels, type CaseRecord, type ClaimView, type SeatModels } from "@/domain/court.ts";
+import { checkType, COUNSEL, MODEL_NAME, project, seatModels, type CaseRecord, type ClaimView, type SeatModels } from "@/domain/court.ts";
 import { GavelIcon, VERDICT_TEXT, VoteChip } from "@/components/marks.tsx";
 import { voteId } from "@/components/case-result.tsx";
 import { auth0 } from "@/lib/auth0.ts";
@@ -90,7 +90,7 @@ async function CaseCard({ c, cover, index, admin }: { c: CaseRecord; cover?: str
   return (
     <li className="reveal" style={{ animationDelay: Math.min(index, 4) * 45 + "ms" }}>
       <article className="relative flex h-full flex-col overflow-hidden rounded-sm border border-rule bg-paper/70 shadow-[0_1px_0_0_var(--color-rule)]">
-        {admin && <DeleteCaseButton caseId={c.id} active={c.status === "queued" || c.status === "in_session"} />}
+        {admin && <DeleteCaseButton caseId={c.id} active={c.status === "queued" || c.status === "in_session"} rerunnable={checkType(c.submission) === "quick"} />}
         <Link href={caseHref(c.id)} aria-label={"Ver el caso Nº " + c.id} className="group relative block aspect-square overflow-hidden border-b border-rule bg-paper-deep">
           <CoverImage c={c} cover={cover} />
           <CaseLinkStatus />
@@ -105,7 +105,7 @@ async function CaseCard({ c, cover, index, admin }: { c: CaseRecord; cover?: str
         </Link>
         <div className="flex flex-1 flex-col p-4">
           <p className="font-mono text-[11px] uppercase tracking-widest text-ink-soft">
-            {shortDate(c.createdAt)} · {claims.length ? claims.length + (claims.length === 1 ? " afirmación" : " afirmaciones") : "Material"}
+            {shortDate(c.createdAt)} · {view?.contentKind === "questions" ? "Consulta" : claims.length ? claims.length + (claims.length === 1 ? " afirmación" : " afirmaciones") : "Material"}
           </p>
           <div className="mt-2 flex-1">
             {view?.dismissal ? (
@@ -119,7 +119,7 @@ async function CaseCard({ c, cover, index, admin }: { c: CaseRecord; cover?: str
             )}
           </div>
           <Link href={caseHref(c.id)} className="mt-4 self-start text-sm text-celeste-deep hover:underline">
-            {hidden > 0 ? "Ver " + hidden + (hidden === 1 ? " afirmación más" : " afirmaciones más") + " y el debate →" : "Ver fundamentos y debate →"}<CaseLinkStatus />
+            {view?.contentKind === "questions" ? "Ver respuestas y síntesis →" : hidden > 0 ? "Ver " + hidden + (hidden === 1 ? " afirmación más" : " afirmaciones más") + " y el debate →" : "Ver fundamentos y debate →"}<CaseLinkStatus />
           </Link>
         </div>
       </article>

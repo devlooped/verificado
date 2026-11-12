@@ -3,42 +3,27 @@ import { test } from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { parseHTML } from "linkedom";
-import { ProcessDiagram, QuickProcessDiagram, QUICK_PROCESS_DIAGRAM } from "./process-diagram.tsx";
+import { ProcessDiagram, PROCESS_DIAGRAM } from "./process-diagram.tsx";
 import MethodPage from "./page.tsx";
 
-const html = renderToStaticMarkup(createElement(ProcessDiagram));
-const { document } = parseHTML(html);
-
-test("the process is rendered as an accessible Pele diagram", () => {
+test("the diagram shows the classification, the questions path without rating, and the vote, majority, tiebreak and failure paths", () => {
+  const { document } = parseHTML(renderToStaticMarkup(createElement(ProcessDiagram)));
   const region = document.querySelector('[role="region"]');
   const svg = region?.querySelector("svg.pele-flowchart");
   assert.ok(svg);
-  assert.equal(svg.querySelector("title")?.textContent, "El proceso de un chequeo experto");
-  assert.match(svg.querySelector("desc")?.textContent ?? "", /crítica de fuentes/);
-  for (const text of [
-    "Se cierra la instrucción",
-    "Expediente común sin fuentes",
-    "Fuente anulada",
-    "Fuente admitida",
-    "Se anula la intervención objetada",
-    "Resultado por mayoría",
-    "El moderador desempata",
-    "Termina el debate",
-  ]) assert.ok(svg.textContent?.replace(/\s/g, "").includes(text.replace(/\s/g, "")), text);
-  assert.ok(!svg.textContent?.replace(/\s/g, "").includes("Secierraelexpediente"));
-  assert.equal(region?.getAttribute("tabindex"), "0");
-});
-
-test("the quick diagram shows the independent vote, majority, tiebreak and failure paths", () => {
-  const quick = parseHTML(renderToStaticMarkup(createElement(QuickProcessDiagram))).document;
-  const region = quick.querySelector('[role="region"]');
-  const svg = region?.querySelector("svg.pele-flowchart");
-  assert.ok(svg);
-  assert.equal(svg.querySelector("title")?.textContent, "El proceso de un chequeo rápido");
+  assert.equal(svg.querySelector("title")?.textContent, "El proceso de un chequeo");
   assert.match(svg.querySelector("desc")?.textContent ?? "", /menos de tres votos o si falla el desempate no hay resultado/);
-  assert.match(region?.getAttribute("aria-label") ?? "", /chequeo rápido/);
+  assert.match(svg.querySelector("desc")?.textContent ?? "", /las preguntas no se califican/);
+  assert.match(region?.getAttribute("aria-label") ?? "", /chequeo/);
   assert.equal(region?.getAttribute("tabindex"), "0");
   for (const text of [
+    "¿afirmaciones o preguntas?",
+    "y responden las preguntas",
+    "¿Respondieron al menos 3?",
+    "Sin síntesis",
+    "la opinión mayoritaria",
+    "las posiciones de los analistas",
+    "Sin calificación de las preguntas",
     "Los cuatro analistas investigan en paralelo",
     "¿Identificar afirmaciones independientes?",
     "separa hasta cinco afirmaciones",
@@ -52,23 +37,22 @@ test("the quick diagram shows the independent vote, majority, tiebreak and failu
     "las respuestas y los votos, sin investigar",
     "Resultado con fundamento del moderador",
   ]) assert.ok(svg.textContent?.replace(/\s/g, "").includes(text.replace(/\s/g, "")), text);
-  for (const edge of ["O -- Sí --> P", "O -- No --> B", "P --> B", "E -- Sí --> F", "F --> L", "M -- No --> H", "E -- No --> G", "G -- No --> H", "G -- Sí --> I", "J -- No --> H"]) {
-    assert.ok(QUICK_PROCESS_DIAGRAM.includes(edge), edge);
+  for (const edge of ["Q -- Preguntas --> R", "S -- No --> T", "U -- Sí --> V", "U -- No --> W", "Q -- Afirmaciones --> O", "O -- Sí --> P", "O -- No --> B", "P --> B", "E -- Sí --> F", "F --> L", "M -- No --> H", "E -- No --> G", "G -- No --> H", "G -- Sí --> I", "J -- No --> H"]) {
+    assert.ok(PROCESS_DIAGRAM.includes(edge), edge);
   }
 });
 
-test("the process diagram follows the four possible results on the method page", () => {
-  const page = parseHTML(renderToStaticMarkup(createElement(MethodPage))).document;
-  assert.doesNotMatch(page.documentElement.textContent ?? "", /reintent|administrador|\badmin\b|\bcontrib\b/i);
+test("the method page explains one check, after the four possible results, and never the Expert check", () => {
+  // One root, so that the whole page is the document element.
+  const page = parseHTML("<main>" + renderToStaticMarkup(createElement(MethodPage)) + "</main>").document;
+  const text = page.documentElement.textContent ?? "";
+  assert.doesNotMatch(text, /reintent|administrador|\badmin\b|\bcontrib\b/i);
+  assert.doesNotMatch(text, /expert|instrucción|crítica de fuentes y debate/i);
+  assert.match(text, /no se votan ni se califican/);
   const sections = [...page.querySelectorAll("main section, section")];
   const results = sections.findIndex((section) => section.id === "resultados");
   const process = sections.findIndex((section) => section.id === "proceso");
   assert.ok(results >= 0 && process > results);
   const diagrams = [...sections[process]!.querySelectorAll("svg.pele-flowchart")];
-  assert.deepEqual(diagrams.map((svg) => svg.querySelector("title")?.textContent), [
-    "El proceso de un chequeo rápido",
-    "El proceso de un chequeo experto",
-  ]);
-  const ids = [...sections[process]!.querySelectorAll("[id]")].map((element) => element.id);
-  assert.equal(new Set(ids).size, ids.length, "the two diagrams must not share SVG ids");
+  assert.deepEqual(diagrams.map((svg) => svg.querySelector("title")?.textContent), ["El proceso de un chequeo"]);
 });

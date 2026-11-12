@@ -4,14 +4,14 @@ import { MockLanguageModelV4 } from "ai/test";
 import { MemoryArtifactStore } from "../evidence/artifacts.ts";
 import { createQuickMockModel } from "./mock.ts";
 import { courtMaxOutputTokens, courtModel } from "./models.ts";
-import { quickAnswer, quickIdentifyClaims, quickSummarize, quickTiebreak, quickVote, type QuickPlayDependencies } from "./quick-play.ts";
+import { quickAnswer, quickClassify, quickIdentifyClaims, quickSummarize, quickSynthesize, quickTiebreak, quickVote, type QuickPlayDependencies, type QuickStep } from "./quick-play.ts";
 import { failed, holdQuickSession } from "./quick.ts";
 import { COUNSEL, project, type RecordedEvent, type Submission } from "../domain/court.ts";
 
 const CASE = "quick-fixture";
 const MODEL = courtModel("anthropic/claude-opus-5.5", "high");
 
-function deps(step: "claims" | "answer" | "vote" | "tiebreak" | "summary", artifacts = new MemoryArtifactStore(), audit: Array<{ id: string; body: Record<string, unknown> }> = []): QuickPlayDependencies {
+function deps(step: QuickStep, artifacts = new MemoryArtifactStore(), audit: Array<{ id: string; body: Record<string, unknown> }> = []): QuickPlayDependencies {
   return {
     artifacts, model: createQuickMockModel(step),
     audit: async (_caseId, id, body) => void audit.push({ id, body: body as Record<string, unknown> }),
@@ -195,4 +195,33 @@ test("the optional quick flow runs end to end through simulated calls for text, 
     assert.match(view.summary ?? "", /SIMULACIÓN LOCAL/);
     assert.equal((await artifacts.read(CASE)).size, 36);
   }
+});
+
+test("the classification, the answers to questions and their synthesis write their request, result and model step", async () => {
+  const artifacts = new MemoryArtifactStore();
+  const audit: Array<{ id: string; body: Record<string, unknown> }> = [];
+  const question: Submission = { kind: "text", text: "¿Cuántos habitantes tiene la Argentina?", check: "quick" };
+  const classified = await quickClassify(CASE, question, MODEL, 0, deps("classify", artifacts, audit));
+  assert.ok(!failed(classified));
+  assert.equal(classified.kind, "questions");
+  const claims = await quickClassify(CASE, { kind: "text", text: "La Argentina tiene 46 millones de habitantes." }, MODEL, 1, deps("classify", artifacts, audit));
+  assert.ok(!failed(claims));
+  assert.equal(claims.kind, "claims");
+  const answer = await quickAnswer(CASE, question, "es", MODEL, "gemini", 0, deps("answer", artifacts, audit), [], "2026-11-11", true);
+  assert.ok(!failed(answer));
+  const synthesis = await quickSynthesize(CASE, question, "es", MODEL, [{ by: "gemini", answer: answer.text }], 0, deps("synthesis", artifacts, audit), "2026-11-11");
+  assert.ok(!failed(synthesis));
+  assert.equal(synthesis.majority, true);
+  assert.match(synthesis.text, /SIMULACIÓN LOCAL/);
+
+  const files = await artifacts.read(CASE);
+  const read = (path: string) => JSON.parse(new TextDecoder().decode(files.get(path)));
+  assert.match(JSON.stringify(read("quick/judge/classify-0/request.json").messages), /MATERIAL: ¿Cuántos/);
+  assert.deepEqual(read("quick/judge/classify-0/request.json").output.properties.kind.enum, ["claims", "questions"]);
+  const asked = read("quick/gemini/answer-0/request.json");
+  assert.match(JSON.stringify(asked.messages), /QUESTION: ¿Cuántos/);
+  assert.doesNotMatch(JSON.stringify(asked), /FACT CHECK/);
+  assert.match(asked.system, /Do not rate the questions/);
+  assert.match(JSON.stringify(read("quick/judge/synthesis-0/request.json").messages), /## Gemini/);
+  assert.deepEqual(audit.map((a) => a.id), ["quick:judge:classify:0", "quick:judge:classify:1", "quick:gemini:answer:0", "quick:judge:synthesis:0"]);
 });

@@ -139,14 +139,16 @@ test("case requests reject unsupported languages before touching storage", async
   assert.deepEqual(await requestFactCheck({}, form), { error: "Elegí un idioma válido.", field: "language" });
 });
 
-test("case requests reject unknown check types before touching storage", async (t) => {
+test("case requests reject the disabled Expert check and unknown check types before touching storage", async (t) => {
   t.mock.method(auth0, "getSession", async () => ({ user: { sub: "daniel", email: "daniel@cazzulino.com", email_verified: true } }) as Awaited<ReturnType<typeof auth0.getSession>>);
   const query = t.mock.method(Pool.prototype, "query", () => { throw new Error("unexpected database access"); });
   const form = new FormData();
   form.set("kind", "text");
   form.set("text", "Una afirmación suficientemente larga para pedir un chequeo.");
-  form.set("check", "deep");
-  assert.deepEqual(await requestFactCheck({}, form), { error: "Elegí un tipo de chequeo válido.", field: "check" });
+  for (const check of ["deep", "expert"]) {
+    form.set("check", check);
+    assert.deepEqual(await requestFactCheck({}, form), { error: "El chequeo experto está deshabilitado." });
+  }
   assert.equal(query.mock.callCount(), 0);
 });
 
@@ -177,7 +179,7 @@ test("a forged Quick claim option is denied without an exact Contrib or Admin ro
   assert.equal(query.mock.callCount(), 0);
 });
 
-test("the submission stores claim identification only when a Quick request opts in", async (t) => {
+test("the submission is a Quick check, with claim identification only when the request opts in", async (t) => {
   let roles: readonly string[] = [];
   t.mock.method(auth0, "getSession", async () => ({ user: { sub: "daniel", email: "daniel@cazzulino.com", email_verified: true, roles } }) as unknown as Awaited<ReturnType<typeof auth0.getSession>>);
   const original = process.env.DATABASE_URL;
@@ -193,7 +195,7 @@ test("the submission stores claim identification only when a Quick request opts 
     },
     release: () => {},
   })) as unknown as typeof Pool.prototype.connect);
-  for (const [check, optIn, assignedRoles] of [[undefined, true, ["Contrib"]], ["quick", true, ["Admin"]], ["quick", false, []], ["expert", true, []], ["quick", true, ["reader", "Contrib"]]] as const) {
+  for (const [check, optIn, assignedRoles] of [[undefined, true, ["Contrib"]], ["quick", true, ["Admin"]], ["quick", false, []], [undefined, false, []], ["quick", true, ["reader", "Contrib"]]] as const) {
     roles = assignedRoles;
     const form = new FormData();
     form.set("kind", "text");
@@ -201,7 +203,7 @@ test("the submission stores claim identification only when a Quick request opts 
     if (check) form.set("check", check);
     if (optIn) form.set("identifyClaims", "on");
     await assert.rejects(requestFactCheck({}, form), stop);
-    assert.equal(submissions.at(-1)?.identifyClaims, optIn && check !== "expert" ? true : undefined);
-    assert.equal(submissions.at(-1)?.check, check ?? "quick");
+    assert.equal(submissions.at(-1)?.identifyClaims, optIn ? true : undefined);
+    assert.equal(submissions.at(-1)?.check, "quick");
   }
 });

@@ -1,4 +1,4 @@
-import { COUNSEL, MODEL_NAME, modelName, project, type CaseRecord, type CaseView, type CheckType, type CourtEvent, type Stage, type Submission, type Verdict } from "./court.ts";
+import { COUNSEL, MODEL_NAME, modelName, project, type CaseRecord, type CaseView, type CourtEvent, type Stage, type Submission, type Verdict } from "./court.ts";
 
 export function submissionExcerpt(s: Submission): string {
   if (s.kind === "text") return s.text;
@@ -6,10 +6,11 @@ export function submissionExcerpt(s: Submission): string {
   return s.note ?? "Imagen";
 }
 
-export const CHECK_LABEL: Record<CheckType, string> = {
-  quick: "Chequeo rápido",
-  expert: "Chequeo experto",
-};
+// What the panel did with the material: one kind of check, whatever court
+// recorded it, or questions answered without any rating.
+export function caseKindLabel(view: Pick<CaseView, "contentKind">): string {
+  return view.contentKind === "questions" ? "Consulta" : "Chequeo";
+}
 
 export const STAGE_LABEL: Record<Stage, string> = {
   opening: "exposición inicial",
@@ -61,7 +62,7 @@ export function caseShareMetadata(c: CaseRecord, events: readonly CourtEvent[] =
     : { title, description: quoted };
 }
 
-export const ABSENCE_LABEL = { ...STAGE_LABEL, discovery: "investigación", instruction: "instrucción", source_review: "crítica de fuentes", objection: "ronda de objeciones", content: "votación del contenido completo" };
+export const ABSENCE_LABEL = { ...STAGE_LABEL, discovery: "investigación", instruction: "instrucción", source_review: "crítica de fuentes", objection: "ronda de objeciones", content: "votación del contenido completo", answer: "respuesta" };
 export const EVIDENCE_STANCE_LABEL = { supports: "a favor", opposes: "en contra", context: "contexto" };
 
 export function describe(e: CourtEvent): string {
@@ -70,6 +71,8 @@ export function describe(e: CourtEvent): string {
       return (e.simulated ? "SIMULACIÓN LOCAL: respuestas y fuentes ficticias. " : "") + "Empieza el debate. Modera " + modelName(e.judgeModel) + ". Participan " + Object.keys(e.counselModels).map((c) => MODEL_NAME[c as keyof typeof MODEL_NAME]).join(", ") + ".";
     case "claims_entered":
       return "El moderador fija las afirmaciones a examinar:\n" + e.claims.map((c) => "[" + c.id + "] " + c.text).join("\n");
+    case "content_classified":
+      return "El moderador clasifica el material: " + (e.kind === "questions" ? "preguntas para responder, sin calificación." : "afirmaciones para chequear.");
     case "dismissed":
       return "El moderador descarta el caso: " + e.reason;
     case "instruction_opened":
@@ -120,6 +123,8 @@ export function describe(e: CourtEvent): string {
       return "Resultado del contenido completo: " + VERDICT_LABEL[e.verdict] + (e.method === "consensus" ? " (por mayoría)." : " (desempate del moderador). " + e.reasoning);
     case "case_summary":
       return "Resumen del moderador: " + e.text;
+    case "answer_synthesis":
+      return "Síntesis del moderador (" + (e.majority ? "opinión mayoritaria" : "sin mayoría: posiciones del panel") + "): " + e.text;
     case "absence":
       return MODEL_NAME[e.by] + " no se pronunció en la " + ABSENCE_LABEL[e.stage] + ".";
     case "session_closed":

@@ -296,8 +296,27 @@ test("a Quick check lists each analyst's answer with its cited pages, then the v
   assert.equal(answers[0]!.querySelector("a")?.getAttribute("href"), "https://example.test/indec");
   assert.match(document.toString(), /1 fuente citada/);
   assert.match(document.toString(), /4 votos sobre el contenido completo/);
-  assert.match(document.toString(), /Empieza el chequeo rápido/);
+  assert.match(document.toString(), /Empieza el chequeo ·/);
   assert.doesNotMatch(document.toString(), /afirmaciones a examinar|Empieza el debate/);
+});
+
+test("questions list the classification and the answers, an absent answer, and no votes, while the result card holds the synthesis", () => {
+  const input: CourtEvent[] = [
+    { type: "session_opened", judgeModel: "anthropic/claude-opus-5.5", counselModels: { grok: "g", gemini: "m", claude: "c", chatgpt: "o" } },
+    { type: "content_classified", kind: "questions" },
+    ...COUNSEL.slice(0, 3).map((by): CourtEvent => ({ type: "quick_response", by, text: "Respuesta de " + by, sources: [] })),
+    { type: "absence", by: "chatgpt", stage: "answer" },
+    { type: "answer_synthesis", text: "Síntesis que no se repite en el registro.", majority: true },
+    { type: "session_closed" },
+  ];
+  const { document } = parseHTML(render(input));
+  const html = document.toString();
+  assert.deepEqual([...document.querySelectorAll("summary h3")].map((h) => h.textContent), ["Apertura", "Respuestas", "Resultado"]);
+  assert.match(html, /Empieza la consulta ·/);
+  assert.match(html, /preguntas para responder, sin calificación/);
+  assert.match(html, /ChatGPT no se pronunció en la respuesta/);
+  assert.match(html, /Termina la consulta ·/);
+  assert.doesNotMatch(html, /Síntesis que no se repite en el registro|votos? sobre el contenido completo/);
 });
 
 test("Quick individual votes are grouped with results, not with the researched answers", () => {

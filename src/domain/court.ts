@@ -69,7 +69,8 @@ export type CaseStatus = "queued" | "in_session" | "resolved" | "failed";
 export type CaseLanguageChoice = "auto" | "es" | "en";
 
 // Quick: each analyst answers and votes on the whole content, with its own
-// search. Expert: the whole court (claims, instruction, debate).
+// search. Expert: the whole court (claims, instruction, debate); disabled for
+// new cases, kept so that the cases recorded with it still read.
 export const CHECK_TYPES = ["quick", "expert"] as const;
 export type CheckType = (typeof CHECK_TYPES)[number];
 
@@ -83,6 +84,12 @@ export type Submission = (
 export function checkType(s: Submission): CheckType {
   return s.check ?? "expert";
 }
+
+// What the moderator finds in the material of a Quick check, before any
+// research: claims to check and rate, or questions for the panel to answer,
+// without any rating. Cases recorded before the classification are claims.
+export const CONTENT_KINDS = ["claims", "questions"] as const;
+export type ContentKind = (typeof CONTENT_KINDS)[number];
 
 export interface SubmissionContext {
   title: string;
@@ -153,6 +160,7 @@ export interface SourceView extends UnifiedSource {
 export type CourtEvent =
   | { type: "session_opened"; judgeModel: string; counselModels: Record<Counsel, string>; judgeEffort?: string | null; counselEfforts?: Record<Counsel, string | null>; simulated?: boolean }
   | { type: "claims_entered"; claims: Claim[] }
+  | { type: "content_classified"; kind: ContentKind }
   | { type: "dismissed"; reason: string }
   | { type: "instruction_opened" }
   | { type: "evidence_filed"; evidence: Evidence }
@@ -178,7 +186,10 @@ export type CourtEvent =
   | { type: "content_vote"; by: Counsel; verdict: Verdict | null; rationale: string }
   | { type: "content_judgment"; verdict: Verdict; method: "consensus" | "judge"; reasoning: string }
   | { type: "case_summary"; text: string }
-  | { type: "absence"; by: Counsel; stage: Stage | "discovery" | "instruction" | "source_review" | "objection" | "content" }
+  // Questions: the moderator's synthesis of the answers, of the majority's
+  // opinion when at least three analysts agree, else of each position.
+  | { type: "answer_synthesis"; text: string; majority: boolean }
+  | { type: "absence"; by: Counsel; stage: Stage | "discovery" | "instruction" | "source_review" | "objection" | "content" | "answer" }
   | { type: "session_closed" };
 
 export interface QuickSource {
@@ -228,6 +239,9 @@ export interface CaseView {
   contentJudgment?: { verdict: Verdict; method: "consensus" | "judge"; reasoning: string };
   // Quick check: each analyst's answer.
   responses: Partial<Record<Counsel, { text: string; sources: QuickSource[] }>>;
+  // Absent on cases recorded before the classification: they are claims.
+  contentKind?: ContentKind;
+  synthesis?: { text: string; majority: boolean };
   evidence: Map<string, Evidence>;
   sources: Map<string, SourceView>;
   struck: Set<string>;
@@ -244,6 +258,12 @@ export function project(events: readonly CourtEvent[]): CaseView {
     switch (e.type) {
       case "claims_entered":
         view.claims = e.claims.map((c) => ({ ...c, votes: {} }));
+        break;
+      case "content_classified":
+        view.contentKind = e.kind;
+        break;
+      case "answer_synthesis":
+        view.synthesis = { text: e.text, majority: e.majority };
         break;
       case "dismissed":
         view.dismissal = e.reason;

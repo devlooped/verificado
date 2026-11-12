@@ -57,7 +57,7 @@ test("a Quick check with independent claims displays their results and a separat
     { type: "content_judgment", verdict: "enganoso", method: "consensus", reasoning: "" },
   ];
   const { document } = parseHTML(render(input, quick));
-  assert.match(document.querySelector("figure figcaption")!.textContent!, /Chequeo Rápido/);
+  assert.match(document.querySelector("figure figcaption")!.textContent!, /^Chequeo/);
   assert.equal(document.querySelectorAll("[data-claim]").length, 2);
   assert.ok(document.querySelector('[aria-label="Resultado del contenido completo: Engañoso"]'));
   assert.ok(document.querySelector('[aria-label="Votos de los analistas sobre A1"]'));
@@ -78,7 +78,7 @@ test("the content, panel and claims form an overview immediately before the mode
   const html = render(events);
   const { document } = parseHTML(html);
   const overview = document.querySelector("[data-case-overview]")!;
-  assert.equal(overview.querySelector("figure figcaption")?.textContent, "Chequeo Experto");
+  assert.equal(overview.querySelector("figure figcaption")?.textContent, "Chequeo", "an Expert record does not name the disabled check");
   assert.ok(overview.querySelector("figure figcaption svg"), "the content has a margin icon");
   assert.ok(overview.querySelector('[aria-labelledby="case-panel-title"] svg'), "the panel has a margin icon");
   assert.equal(overview.querySelectorAll("article[data-claim]").length, 2);
@@ -128,7 +128,7 @@ test("a text submission identical to its sole claim shares one card with the res
   const card = document.getElementById("A1")!;
   assert.equal(document.querySelectorAll("article[data-claim]").length, 1);
   assert.equal(card.querySelector("figure")?.closest("article"), card);
-  assert.equal(card.querySelector("figcaption")?.textContent, "Chequeo ExpertoA1");
+  assert.equal(card.querySelector("figcaption")?.textContent, "ChequeoA1");
   assert.equal(card.textContent.split(text).length - 1, 1, "the claim's text appears only once");
   assert.ok(!card.querySelector("h3"));
   assert.ok(!card.querySelector("blockquote a"), "no duplicate inline result or vote tooltip");
@@ -417,7 +417,7 @@ test("a Quick check shows the content verdict and four votes with reasons collap
   const { document } = parseHTML(render(input, quick));
   assert.match(document.querySelector('[aria-label="Resultado del contenido completo: Falso"]')!.textContent, /Falso/);
   const figure = document.querySelector("figure")!;
-  assert.ok(figure.querySelector("figcaption")?.textContent?.startsWith("Chequeo Rápido"));
+  assert.ok(figure.querySelector("figcaption")?.textContent?.startsWith("Chequeo"));
   const votes = figure.querySelector("details")!;
   assert.equal(votes.querySelector("summary")?.textContent, "Fundamentos de cada voto");
   assert.ok(!votes.hasAttribute("open"));
@@ -433,7 +433,7 @@ test("a Quick check shows the content verdict and four votes with reasons collap
   }
   assert.ok(chips.querySelector('[title="ChatGPT (gpt-6.1-sol high): Falso"]'));
   assert.equal(document.querySelector("#case-claims-title"), null);
-  assert.match(document.toString(), /Chequeo rápido/);
+  assert.doesNotMatch(document.toString(), /Chequeo (rápido|experto)/i);
 });
 
 test("a Quick majority summary is visible without expanding the individual votes", () => {
@@ -510,7 +510,7 @@ test("quick content chips distinguish absent votes from recorded no corresponde 
     { kind: "image" as const, mimeType: "image/png", check: "quick" as const },
   ]) {
     const { document } = parseHTML(render(input, { ...c, submission, models: undefined }));
-    assert.equal(document.querySelector("figure figcaption")?.textContent, "Chequeo Rápido");
+    assert.equal(document.querySelector("figure figcaption")?.textContent, "Chequeo");
     const chips = document.querySelector('[aria-label="Votos de los analistas sobre el contenido"]')!;
     assert.ok(chips.querySelector('a[href="#voto-contenido-grok"][aria-label="Ver fundamento de Grok: No corresponde"] [aria-label="Grok: No corresponde"]'));
     assert.ok(chips.querySelector('a[href="#voto-contenido-gemini"] [aria-label="Gemini: Engañoso"]'));
@@ -520,4 +520,27 @@ test("quick content chips distinguish absent votes from recorded no corresponde 
   const empty = parseHTML(render([], { ...c, submission: { kind: "text", text: "Contenido", check: "quick" }, models: undefined })).document;
   assert.equal(empty.querySelectorAll('[aria-label="Votos de los analistas sobre el contenido"] [title$="no votó"]').length, 4);
   assert.equal(empty.querySelector("figure details"), null);
+});
+
+test("questions show the answers' synthesis, majority or not, and no verdict or vote anywhere", () => {
+  const question: CaseRecord = { ...c, submission: { kind: "text", text: "¿Cuántos habitantes tiene la Argentina?", check: "quick" } };
+  for (const majority of [true, false]) {
+    const input: CourtEvent[] = [
+      { type: "content_classified", kind: "questions" },
+      ...COUNSEL.map((by): CourtEvent => ({ type: "quick_response", by, text: "Respuesta de " + by, sources: [] })),
+      { type: "answer_synthesis", text: "Síntesis de las respuestas del panel.", majority },
+      { type: "session_closed" },
+    ];
+    const { document } = parseHTML(render(input, question));
+    assert.equal(document.querySelector("figure figcaption")?.textContent, "Consulta");
+    assert.equal(document.querySelector('[aria-label="Votos de los analistas sobre el contenido"]'), null);
+    assert.equal(document.querySelector("#case-claims-title"), null);
+    const summary = document.querySelector('[aria-labelledby="case-summary-title"]')!;
+    assert.equal(summary.querySelector("h2")?.textContent, "Síntesis del panel");
+    assert.match(summary.textContent, /Síntesis de las respuestas del panel\./);
+    assert.match(summary.textContent, majority ? /Opinión mayoritaria/ : /Sin mayoría: posiciones/);
+    assert.match(summary.textContent, /Las preguntas no se califican/);
+    assert.doesNotMatch(document.toString(), /Verdadero|Falso|Insostenible|Engañoso|Desempate/);
+    assert.match(document.toString(), />Consulta</, "the panel names a question as such");
+  }
 });

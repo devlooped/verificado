@@ -139,6 +139,13 @@
     },
     {
       "file": "src/court/quick-play.ts",
+      "scope": "quickClassify.generate",
+      "call": "generateText",
+      "kind": "model",
+      "count": 1
+    },
+    {
+      "file": "src/court/quick-play.ts",
       "scope": "quickIdentifyClaims.generate",
       "call": "generateText",
       "kind": "model",
@@ -147,6 +154,13 @@
     {
       "file": "src/court/quick-play.ts",
       "scope": "quickSummarize.generate",
+      "call": "generateText",
+      "kind": "model",
+      "count": 1
+    },
+    {
+      "file": "src/court/quick-play.ts",
+      "scope": "quickSynthesize.generate",
       "call": "generateText",
       "kind": "model",
       "count": 1
@@ -204,6 +218,13 @@
       "file": "src/evidence/blob.ts",
       "scope": "copyCaseBlobs",
       "call": "copyObject",
+      "kind": "object-storage",
+      "count": 1
+    },
+    {
+      "file": "src/evidence/blob.ts",
+      "scope": "deleteCaseTurnBlobs",
+      "call": "deleteObjects",
       "kind": "object-storage",
       "count": 1
     },
@@ -818,6 +839,13 @@
     },
     {
       "file": "src/store.ts",
+      "scope": "resumeFailedCase",
+      "call": "client.query",
+      "kind": "sql-write-or-lock",
+      "count": 4
+    },
+    {
+      "file": "src/store.ts",
       "scope": "retainContinuationPhaseSnapshot",
       "call": "client.query",
       "kind": "sql-write-or-lock",
@@ -943,6 +971,7 @@
         "answerQuick",
         "archive",
         "buildCriticismIndex",
+        "classifyQuick",
         "collect",
         "collectProposals",
         "collectShared",
@@ -957,6 +986,7 @@
         "revokeShared",
         "settleShared",
         "summarizeQuick",
+        "synthesizeQuick",
         "tiebreakQuick",
         "translateContributions",
         "translatePrompts",

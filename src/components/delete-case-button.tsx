@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-export function DeleteCaseButton({ caseId, active }: { caseId: string; active: boolean }) {
+// An Expert case cannot run again (the Expert check is disabled): it has no rerun button.
+export function DeleteCaseButton({ caseId, active, rerunnable = true }: { caseId: string; active: boolean; rerunnable?: boolean }) {
   const router = useRouter();
   const [pending, setPending] = useState<"delete" | "rerun" | "stop" | null>(null);
   const [error, setError] = useState("");
@@ -61,11 +62,11 @@ export function DeleteCaseButton({ caseId, active }: { caseId: string; active: b
   return (
     <div className="absolute right-3 top-3 z-10 flex max-w-[80%] flex-col items-end gap-1">
       <div className="flex gap-1">
-        <button type="button" onClick={active ? stop : rerun} disabled={!!pending} aria-label={`${active ? "Detener" : "Volver a ejecutar"} caso Nº ${caseId}`} title={active ? "Detener caso" : "Volver a ejecutar caso"} className={buttonClass + (active ? " hover:text-falso" : " hover:text-celeste-deep")}>
+        {(active || rerunnable) && <button type="button" onClick={active ? stop : rerun} disabled={!!pending} aria-label={`${active ? "Detener" : "Volver a ejecutar"} caso Nº ${caseId}`} title={active ? "Detener caso" : "Volver a ejecutar caso"} className={buttonClass + (active ? " hover:text-falso" : " hover:text-celeste-deep")}>
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="size-5">
             {active ? <rect x="6" y="6" width="12" height="12" rx="1" /> : <path d="M20 11a8 8 0 0 0-14-5L4 8m0-4v4h4M4 13a8 8 0 0 0 14 5l2-2m0 4v-4h-4" />}
           </svg>
-        </button>
+        </button>}
         <button type="button" onClick={remove} disabled={!!pending || active} aria-label={`Eliminar caso Nº ${caseId}`} title={active ? "No se puede eliminar un caso en curso" : "Eliminar caso"} className={buttonClass + " hover:text-falso"}>
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="size-5">
             <path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5" />

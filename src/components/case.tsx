@@ -143,9 +143,12 @@ function QuickResponse({ e }: { e: Extract<RecordedEvent, { type: "quick_respons
 function Entry({ e, ctx }: { e: RecordedEvent; ctx: Context }) {
   const { view } = ctx;
   const quick = Object.keys(view.responses).length > 0;
+  const questions = view.contentKind === "questions";
   switch (e.type) {
     case "session_opened":
-      return <Clerk>{e.simulated && "Simulación local · fuentes y respuestas ficticias · "}{quick ? "Empieza el chequeo rápido" : "Empieza el debate"} · {time(e.at)}</Clerk>;
+      return <Clerk>{e.simulated && "Simulación local · fuentes y respuestas ficticias · "}{questions ? "Empieza la consulta" : quick ? "Empieza el chequeo" : "Empieza el debate"} · {time(e.at)}</Clerk>;
+    case "content_classified":
+      return <Clerk>El moderador clasifica el material · {e.kind === "questions" ? "preguntas para responder, sin calificación" : "afirmaciones para chequear"}</Clerk>;
     case "quick_response":
       return <QuickResponse e={e} />;
     case "claims_entered":
@@ -310,17 +313,24 @@ function Entry({ e, ctx }: { e: RecordedEvent; ctx: Context }) {
           <p className="mt-1 whitespace-pre-line text-ink-soft"><Cited text={e.text} ctx={ctx} /></p>
         </div>
       );
+    case "answer_synthesis":
+      return (
+        <div className="text-sm">
+          <p className="font-semibold">Síntesis del moderador · {e.majority ? "opinión mayoritaria" : "sin mayoría: posiciones de los analistas"}</p>
+          <p className="mt-1 whitespace-pre-line text-ink-soft"><Cited text={e.text} ctx={ctx} /></p>
+        </div>
+      );
     case "absence":
       return <Clerk>{MODEL_NAME[e.by]} no se pronunció en la {ABSENCE_LABEL[e.stage]}</Clerk>;
     case "session_closed":
-      return <Clerk>{quick ? "Termina el chequeo" : "Termina el debate"} · {time(e.at)}</Clerk>;
+      return <Clerk>{questions ? "Termina la consulta" : quick ? "Termina el chequeo" : "Termina el debate"} · {time(e.at)}</Clerk>;
   }
 }
 
 // Entries that hang from a speaker above them sit indented under the speakers' column.
 const INDENTED = new Set<RecordedEvent["type"]>([
   "evidence_filed", "instruction_completed", "evidence_unified", "source_review_vote", "source_decided",
-  "objection", "objection_reply", "ruling", "vote", "content_vote", "case_summary",
+  "objection", "objection_reply", "ruling", "vote", "content_vote", "case_summary", "answer_synthesis",
 ]);
 
 type SectionKey = "apertura" | "respuestas" | "instruccion" | "recopilacion" | "fuentes" | Stage | "resultado";
@@ -363,7 +373,7 @@ function sectionsOf(events: readonly RecordedEvent[]): Section[] {
     else if ((e.type === "evidence_filed" || e.type === "instruction_completed") && key === "apertura") key = "instruccion";
     else if (e.type === "evidence_unified") key = "fuentes";
     else if (e.type === "floor_granted" || e.type === "statement") key = e.stage;
-    else if ((e.type === "vote" && key === "respuestas") || e.type === "judgment" || e.type === "content_vote" || e.type === "content_judgment" || e.type === "session_closed") key = "resultado";
+    else if ((e.type === "vote" && key === "respuestas") || e.type === "judgment" || e.type === "content_vote" || e.type === "content_judgment" || e.type === "answer_synthesis" || e.type === "session_closed") key = "resultado";
     const last = sections.at(-1);
     if (last?.key === key) last.events.push(e);
     else sections.push({ key, events: [e] });
@@ -417,7 +427,8 @@ function summaryOf(section: Section, view: CaseView): string {
   const plural = (n: number, one: string, many: string) => n + " " + (n === 1 ? one : many);
   switch (section.key) {
     case "apertura":
-      if (Object.keys(view.responses).length) return "Chequeo rápido";
+      if (view.contentKind === "questions") return "Consulta";
+      if (Object.keys(view.responses).length) return "Chequeo";
       return view.dismissal ? "Caso descartado" : plural(view.claims.length, "afirmación a examinar", "afirmaciones a examinar");
     case "respuestas":
       return plural(count("quick_response"), "respuesta", "respuestas") + " con búsqueda propia";
@@ -435,6 +446,7 @@ function summaryOf(section: Section, view: CaseView): string {
       return "Expediente común · " + plural(sources.length, "fuente", "fuentes") + " · " + plural(sources.filter((s) => s.excluded).length, "anulada", "anuladas");
     }
     case "resultado":
+      if (view.contentKind === "questions") return view.synthesis ? "Síntesis del moderador" : "Sin síntesis";
       if (Object.keys(view.responses).length) return (count("vote") ? plural(count("vote"), "voto", "votos") + " por afirmación · " : "") + plural(count("content_vote"), "voto", "votos") + " sobre el contenido completo";
       return plural(count("judgment"), "resultado", "resultados");
     default: {
@@ -539,7 +551,8 @@ export function Case({ events, view, caseId, sourceAliases = new Map(), models =
   // La tarjeta ya muestra el resumen, los votos y la decisión proyectados; conservar solo
   // eventos que no estén representados allí (por ejemplo, registros incompletos).
   const visible = events.filter((e) => {
-    if (e.type === "case_summary") return false;
+    // The result card shows the synthesis of the answers too.
+    if (e.type === "case_summary" || e.type === "answer_synthesis") return false;
     if (e.type === "source_review_vote") {
       const vote = view.sources.get(e.sourceId)?.votes[e.by];
       return !vote || vote.veto !== e.veto || vote.reason !== e.reason;

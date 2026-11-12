@@ -4,18 +4,18 @@ import { VERDICT_LABEL } from "@/domain/case.ts";
 import { COUNSEL, COUNSEL_NAMES, MODEL_NAME, VERDICTS, type Verdict } from "@/domain/court.ts";
 import { GavelIcon, ModelMark, VERDICT_TEXT, VerdictGlyph } from "@/components/marks.tsx";
 import { REQUEST_PANEL_ID } from "@/lib/request-panel.ts";
-import { ProcessDiagram, QuickProcessDiagram } from "./process-diagram.tsx";
+import { ProcessDiagram } from "./process-diagram.tsx";
 
 export const metadata: Metadata = {
   title: "Método · Che bot, es cierto?",
-  description: "Cómo el panel de inteligencias artificiales realiza chequeos rápidos y expertos.",
+  description: "Cómo el panel de inteligencias artificiales chequea afirmaciones y responde preguntas.",
 };
 
 const STEPS = [
-  { n: "I", title: "Instrucción", body: "El moderador fija las afirmaciones. " + COUNSEL_NAMES + " buscan pruebas a favor y en contra. El moderador unifica las fuentes y conserva los aportes de cada analista." },
-  { n: "II", title: "Crítica de fuentes", body: "Cada analista revisa la confiabilidad de las fuentes. Tres de los cuatro votos anulan una fuente; todos los votos y sus motivos quedan registrados." },
-  { n: "III", title: "Debate", body: "Con las fuentes admitidas conocidas por todos, cada analista expone, responde y puede objetar a sus colegas. El moderador resuelve las objeciones." },
-  { n: "IV", title: "Resultado", body: "Votan verdadero, falso, insostenible o engañoso. Si tres coinciden, hay mayoría. Si no, desempata el moderador con la evidencia del registro." },
+  { n: "I", title: "Clasificación", body: "El moderador lee el material y distingue si trae afirmaciones para chequear o preguntas para responder, sin investigarlo ni responderlo." },
+  { n: "II", title: "Respuestas", body: COUNSEL_NAMES + " investigan en paralelo, cada uno con las herramientas de búsqueda de su proveedor, y responden con sus palabras, sin debatir entre sí." },
+  { n: "III", title: "Afirmaciones", body: "Cada analista vota el contenido completo: verdadero, falso, insostenible o engañoso. Si tres coinciden, hay mayoría. Si no, desempata el moderador." },
+  { n: "IV", title: "Preguntas", body: "No se califican. El moderador sintetiza la opinión mayoritaria de los analistas o, si no hay mayoría, sus distintas posiciones." },
 ];
 
 const VERDICT_MEANING: Record<Verdict, string> = {
@@ -37,7 +37,7 @@ export default function MethodPage() {
           Cuatro analistas, un moderador, cero opiniones humanas.
         </p>
         <p className="mt-5 max-w-2xl text-lg leading-relaxed text-ink-soft">
-          Presentá un texto, un enlace o una imagen. Elegí entre un chequeo rápido, con respuestas y votos independientes, o uno experto, con investigación, crítica de fuentes y debate. Nadie edita, nadie opina, todo queda en el registro público.
+          Presentá un texto, un enlace o una imagen. Si trae afirmaciones, el panel las chequea y las vota; si trae preguntas, las responde y el moderador sintetiza sus respuestas. Nadie edita, nadie opina, todo queda en el registro público.
         </p>
         <p className="mt-6">
           <button type="button" popoverTarget={REQUEST_PANEL_ID} className="btn-primary">
@@ -57,7 +57,7 @@ export default function MethodPage() {
       </header>
 
       <section className="mt-14 border-y border-rule py-8">
-        <h2 className="font-display text-3xl">Las etapas del chequeo experto</h2>
+        <h2 className="font-display text-3xl">Las etapas del chequeo</h2>
         <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {STEPS.map((s, i) => (
             <div key={s.n} className="reveal" style={{ animationDelay: 60 + i * 60 + "ms" }}>
@@ -87,37 +87,32 @@ export default function MethodPage() {
         <p className="mt-8 flex items-start gap-3 text-sm text-ink-soft">
           <GavelIcon className="mt-0.5 size-4 shrink-0 text-seal" />
           <span>
-            En el chequeo rápido, si hay al menos tres votos pero no hay mayoría, el moderador desempata con el contenido, las respuestas y los votos. En el experto, desempata las afirmaciones sin mayoría con la evidencia del registro. Su decisión lleva el sello de desempate; podés ver qué modelo moderó y leer los fundamentos.
+            Si hay al menos tres votos pero no hay mayoría, el moderador desempata con el contenido, las respuestas y los votos. Su decisión lleva el sello de desempate; podés ver qué modelo moderó y leer los fundamentos.
           </span>
         </p>
-        <p className="mt-4 text-sm text-ink-soft">En el chequeo experto, después de decidir las afirmaciones, los analistas evalúan el contenido completo si hay una sola afirmación o forman una narrativa común. Si al menos tres votan sobre el conjunto, tres votos coincidentes dan el resultado; si no coinciden, desempata el moderador. Las afirmaciones independientes pueden no tener un resultado global. Los casos anteriores pueden no incluir esta votación.</p>
+        <p className="mt-4 text-sm text-ink-soft">Estos resultados son solo para afirmaciones: las preguntas no reciben ninguno.</p>
       </section>
 
-      <section id="chequeo-rapido" className="mt-12 scroll-mt-6">
-        <h2 className="font-display text-3xl">Chequeo rápido y chequeo experto</h2>
+      <section id="afirmaciones-y-preguntas" className="mt-12 scroll-mt-6">
+        <h2 className="font-display text-3xl">Afirmaciones y preguntas</h2>
         <p className="mt-3 max-w-3xl text-sm leading-relaxed text-ink-soft">
-          Al pedir un chequeo elegís el tipo. El <strong className="text-ink">chequeo rápido</strong> (el predeterminado) le pregunta a cada analista, en paralelo, si el contenido es cierto: cada uno busca con las herramientas de su proveedor, responde con sus palabras y vota sobre el contenido completo. Tres votos coincidentes dan el resultado y el moderador resume brevemente sus fundamentos, sin investigar ni cambiar la calificación; si hay al menos tres votos sin mayoría, desempata con el contenido, las respuestas y los votos. Con menos de tres votos no hay resultado. No hay crítica de fuentes ni debate, y las páginas que cita cada respuesta son las de su proveedor, no fuentes revisadas por el panel.
+          Antes de que los analistas empiecen, el moderador clasifica el material. Si trae <strong className="text-ink">afirmaciones</strong>, como una noticia, un posteo o una declaración, o si pide verificar una (“¿es cierto que…?”), el panel le pregunta a cada analista, en paralelo, si el contenido es cierto: cada uno busca con las herramientas de su proveedor, responde con sus palabras y vota sobre el contenido completo. Tres votos coincidentes dan el resultado y el moderador resume brevemente sus fundamentos, sin investigar ni cambiar la calificación; si hay al menos tres votos sin mayoría, desempata con el contenido, las respuestas y los votos. Con menos de tres votos no hay resultado. No hay crítica de fuentes ni debate, y las páginas que cita cada respuesta son las de su proveedor, no fuentes revisadas por el panel.
         </p>
         <p className="mt-3 max-w-3xl text-sm leading-relaxed text-ink-soft">
-          La opción <strong className="text-ink">Identificar afirmaciones independientes</strong> permite que el moderador lea el material y separe hasta cinco afirmaciones, como en el experto. Cada analista realiza una sola investigación rápida que cubre esas afirmaciones y el conjunto, y luego vota cada afirmación y el contenido completo por separado, aunque sean independientes entre sí. Cada resultado usa la misma regla de tres votos y desempate; el resumen distingue las mayorías de cada resultado. Si no hay afirmaciones factuales, se vota solo el contenido completo. La opción está desactivada por defecto y puede tardar un poco más; no agrega debate ni crítica de fuentes.
+          La opción <strong className="text-ink">Identificar afirmaciones independientes</strong> permite que el moderador lea el material y separe hasta cinco afirmaciones. Cada analista realiza una sola investigación rápida que cubre esas afirmaciones y el conjunto, y luego vota cada afirmación y el contenido completo por separado, aunque sean independientes entre sí. Cada resultado usa la misma regla de tres votos y desempate; el resumen distingue las mayorías de cada resultado. Si no hay afirmaciones factuales, se vota solo el contenido completo. La opción está desactivada por defecto y puede tardar un poco más; no agrega debate ni crítica de fuentes.
         </p>
         <p className="mt-3 max-w-3xl text-sm leading-relaxed text-ink-soft">
-          El <strong className="text-ink">chequeo experto</strong> sigue el proceso completo de instrucción, crítica de fuentes, debate y votos por afirmación. Tarda más y deja un registro más detallado.
+          Si el material le hace al panel una o varias <strong className="text-ink">preguntas</strong>, cada analista las responde con su propia búsqueda, y el moderador redacta una síntesis de las respuestas, sin investigar ni agregar datos propios: si al menos tres analistas coinciden, sintetiza esa opinión mayoritaria; si no, sintetiza las distintas posiciones y quién sostiene cada una. Las preguntas no se votan ni se califican, ni una por una ni en conjunto. Con menos de tres respuestas no hay síntesis.
         </p>
       </section>
 
       <section id="proceso" className="mt-14 scroll-mt-6">
         <div className="rule-double pt-5">
-          <h2 className="font-display text-3xl">Los procesos, paso a paso</h2>
+          <h2 className="font-display text-3xl">El proceso, paso a paso</h2>
           <p className="mt-2 max-w-2xl text-sm leading-relaxed text-ink-soft">
-            Desde el material que recibimos hasta la decisión final, así funciona cada tipo de chequeo.
+            Desde el material que recibimos hasta el resultado o la síntesis final.
           </p>
         </div>
-        <h3 className="mt-8 font-display text-2xl">Chequeo rápido</h3>
-        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-ink-soft">Los analistas responden y votan el contenido completo sin debatir entre sí.</p>
-        <QuickProcessDiagram />
-        <h3 className="mt-10 font-display text-2xl">Chequeo experto</h3>
-        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-ink-soft">El panel investiga, critica las fuentes y debate cada afirmación.</p>
         <ProcessDiagram />
         <p className="mt-10">
           <Link href="/" className="text-celeste-deep underline decoration-celeste/40 underline-offset-4 hover:decoration-celeste-deep">

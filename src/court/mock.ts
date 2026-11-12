@@ -5,6 +5,7 @@ import { z } from "zod";
 import { createHash } from "node:crypto";
 import { project, type CourtEvent, type Submission } from "../domain/court.ts";
 import type { TurnSpec } from "./turns.ts";
+import type { QuickStep } from "./quick-play.ts";
 
 export function mockAiEnabled(): boolean {
   const mode = process.env.COURT_AI_MODE ?? "live";
@@ -118,15 +119,20 @@ function responses({ spec, record, submission, native }: MockTurn): Call[][] {
   }
 }
 
-// A Quick check: the analyst's answer in prose, its typed vote on the whole
-// content, and the moderator's tie-break. Every analyst votes the same way, so a
-// simulated case resolves by consensus.
-export function createQuickMockModel(step: "claims" | "answer" | "vote" | "tiebreak" | "summary") {
-  const text = step === "answer"
-    ? prefix + "Respuesta ficticia para probar el chequeo rápido; no busqué ni verifiqué el material enviado.\nLas fuentes de esta simulación no existen."
+// A Quick check: the moderator's classification, the analyst's answer in
+// prose, its typed vote on the whole content, and the moderator's tie-break.
+// Every analyst votes the same way, so a simulated case resolves by consensus.
+// The material is classified as questions when its text has a question mark.
+export function createQuickMockModel(step: QuickStep) {
+  const text = (asked: boolean) => step === "answer"
+    ? prefix + "Respuesta ficticia para probar el chequeo; no busqué ni verifiqué el material enviado.\nLas fuentes de esta simulación no existen."
     : step === "summary"
     ? prefix + "La mayoría considera que el contenido no es verificable: esta simulación no realizó ninguna verificación real."
-    : JSON.stringify(step === "claims"
+    : JSON.stringify(step === "classify"
+      ? { kind: asked ? "questions" : "claims" }
+      : step === "synthesis"
+      ? { majority: true, synthesis: prefix + "Síntesis ficticia de respuestas simuladas; ningún analista buscó ni respondió de verdad." }
+      : step === "claims"
       ? { claims: [{ quote: "", text: prefix + "Primera afirmación ficticia para probar el flujo." }, { quote: "", text: prefix + "Segunda afirmación ficticia para probar el flujo." }] }
       : step === "vote"
       ? { verdict: "no_verificable", rationale: prefix + "La respuesta es ficticia: no verifica el contenido enviado." }
@@ -134,8 +140,8 @@ export function createQuickMockModel(step: "claims" | "answer" | "vote" | "tiebr
   return new MockLanguageModelV4({
     provider: "local-mock",
     modelId: MOCK_MODEL_ID,
-    doGenerate: async () => ({
-      content: [{ type: "text" as const, text }],
+    doGenerate: async ({ prompt }) => ({
+      content: [{ type: "text" as const, text: text(prompt.some((m) => m.role === "user" && m.content.some((part) => part.type === "text" && part.text.includes("?")))) }],
       finishReason: { unified: "stop" as const, raw: undefined },
       usage: { inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 0, text: 0, reasoning: 0 } },
       warnings: [],

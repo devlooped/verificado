@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { rerunCaseResponse } from "./rerun-case-response.ts";
+import type { CheckType } from "../domain/court.ts";
+import { EXPERT_DISABLED, rerunCaseResponse } from "./rerun-case-response.ts";
 import { SandboxCleanupBlockedError, SANDBOX_CLEANUP_BLOCKED_RESPONSE } from "./sandbox-cleanup.ts";
 
 const admin = { sub: "admin-user", roles: ["Admin"] };
 const request = (origin = "https://example.test") => new Request("https://example.test/api/cases/AA-123-BB/rerun", { method: "POST", headers: { origin } });
-function dependencies(result: "queued" | "missing" | "active" | "missing-image" = "queued") {
+function dependencies(result: "queued" | "missing" | "active" | "missing-image" = "queued", check: CheckType | undefined = "quick") {
   const calls: unknown[][] = [];
   return { calls, deps: {
+    checkType: async () => check,
     restartCase: async (id: string) => { calls.push(["restartCase", id]); return result; },
     start: async (id: string, latestPipeline: boolean) => { calls.push(["start", id, latestPipeline]); },
     finish: async (id: string, status: "failed", error: string) => { calls.push(["finish", id, status, error]); },
@@ -61,4 +63,16 @@ test("a cleanup safety block reports conflict without start or failure mutation"
   assert.equal(response.status, 409);
   assert.deepEqual(await response.json(), SANDBOX_CLEANUP_BLOCKED_RESPONSE);
   assert.deepEqual(calls, []);
+});
+
+test("an Expert case is refused before the restart deletes anything: the Expert check is disabled", async () => {
+  for (const check of ["expert", undefined] as const) {
+    const { calls, deps } = dependencies("queued", check);
+    const response = await rerunCaseResponse(request(), "AA-123-BB", admin, deps);
+    if (check) {
+      assert.equal(response.status, 409);
+      assert.deepEqual(await response.json(), { error: EXPERT_DISABLED });
+      assert.deepEqual(calls, []);
+    } else assert.deepEqual(calls[0], ["restartCase", "AA-123-BB"], "a missing case is left to the restart, which reports it");
+  }
 });

@@ -158,7 +158,8 @@ export async function illustrateCase(caseId: string, deps?: CoverDeps): Promise<
   const c = await getCase(caseId);
   if (!c || c.submission.kind === "image") return false;
   const view = project(await getEvents(caseId));
-  const cover = await findCover(coverBrief(c.submission, view.claims.map((claim) => claim.text), view.summary), deps ?? liveCoverDeps(DEFAULT_MODELS, caseId));
+  // Questions have the synthesis of their answers in place of a summary.
+  const cover = await findCover(coverBrief(c.submission, view.claims.map((claim) => claim.text), view.summary ?? view.synthesis?.text), deps ?? liveCoverDeps(DEFAULT_MODELS, caseId));
   await saveCover(caseId, cover);
   return true;
 }
