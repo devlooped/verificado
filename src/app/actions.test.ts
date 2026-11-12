@@ -27,6 +27,8 @@ test("case requests require the verified authorized account before validating in
     { user: { sub: "someone", email: "daniel@cazzulino.com", email_verified: false } },
     { user: { sub: "someone", email: "daniel@cazzulino.com" } },
     { user: { email: "daniel@cazzulino.com", email_verified: true } },
+    { user: { sub: "someone", roles: ["contrib"] } },
+    { user: { roles: ["Contrib"] } },
   ];
   for (const session of sessions) {
     const getSession = t.mock.method(auth0, "getSession", async () => session as Awaited<ReturnType<typeof auth0.getSession>>);
@@ -37,8 +39,11 @@ test("case requests require the verified authorized account before validating in
     getSession.mock.restore();
   }
 
-  t.mock.method(auth0, "getSession", async () => ({ user: { sub: "daniel", email: "Daniel@Cazzulino.com", email_verified: true } }) as Awaited<ReturnType<typeof auth0.getSession>>);
-  assert.deepEqual(await requestFactCheck({}, form), { error: "Pegá un texto de al menos 20 caracteres.", field: "text" });
+  for (const user of [{ sub: "daniel", email: "Daniel@Cazzulino.com", email_verified: true }, { sub: "contrib", roles: ["Contrib"] }, { sub: "admin", roles: ["Admin"] }]) {
+    const getSession = t.mock.method(auth0, "getSession", async () => ({ user }) as unknown as Awaited<ReturnType<typeof auth0.getSession>>);
+    assert.deepEqual(await requestFactCheck({}, form), { error: "Pegá un texto de al menos 20 caracteres.", field: "text" });
+    getSession.mock.restore();
+  }
 });
 
 test("direct retry action calls reject unauthorized sessions with zero effects", async (t) => {
