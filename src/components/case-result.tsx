@@ -1,5 +1,5 @@
 import { caseKindLabel, caseOutcome, contentOutcome, VERDICT_LABEL } from "@/domain/case.ts";
-import { checkType, COUNSEL, MODEL_NAME, seatModels, type CaseRecord, type CaseView, type ClaimView, type RecordedEvent, type SeatModels } from "@/domain/court.ts";
+import { checkType, COUNSEL, MODEL_NAME, seatModels, type AnswerSynthesis, type CaseRecord, type CaseView, type ClaimView, type RecordedEvent, type SeatModels } from "@/domain/court.ts";
 import { caseDate, formatCaseDate } from "@/domain/case-date.ts";
 import { Cited, citationRefs, type Citations } from "./citations.tsx";
 import { ClaimsIcon, GavelIcon, JudgeSeal, MegaphoneIcon, VERDICT_TEXT, VerdictDot, VoteChip } from "./marks.tsx";
@@ -75,7 +75,7 @@ function Original({ c, view, models, citations, combined = false }: { c: CaseRec
   const outcome = contentOutcome(view);
   const quick = checkType(s) === "quick";
   // Questions are answered, not rated: no votes to show.
-  const questions = view.contentKind === "questions";
+  const questions = view.contentKind === "question";
   return (
     <figure className={combined ? "min-w-0" : "min-w-0 rounded-sm border border-rule bg-paper/60 p-5"}>
       <figcaption className="mb-5 flex flex-wrap items-center gap-3">
@@ -188,6 +188,18 @@ function ClaimCard({ claim, models, citations, children }: { claim: ClaimView; m
   );
 }
 
+// The moderator's synthesis of the answers to one question: no rating, only
+// whether it gives the majority's opinion or each position.
+function Synthesis({ synthesis, citations }: { synthesis?: AnswerSynthesis; citations: Citations }) {
+  if (!synthesis) return <p className="mt-3 text-sm text-ink-soft">No hay síntesis del moderador registrada.</p>;
+  return (
+    <>
+      <p className="mt-2 text-xs font-medium text-ink-soft">{synthesis.majority ? "Opinión mayoritaria de los analistas" : "Sin mayoría: posiciones de los analistas"}</p>
+      <p className="mt-2 whitespace-pre-line leading-relaxed"><Cited text={synthesis.text} ctx={citations} /></p>
+    </>
+  );
+}
+
 export function CaseResult({ c, view, events = [], models = seatModels(c, events), costs }: { c: CaseRecord; view: CaseView; events?: readonly RecordedEvent[]; models?: SeatModels; costs?: CaseCosts }) {
   const citations: Citations = { caseId: c.id, refs: citationRefs(events, view) };
   const outcome = caseOutcome(view);
@@ -247,16 +259,18 @@ export function CaseResult({ c, view, events = [], models = seatModels(c, events
           </section>
         )}
       </div>
-      {view.contentKind === "questions" ? (
+      {view.contentKind === "question" ? (
         <section aria-labelledby="case-summary-title" className="mt-8 rule-double pt-5">
           <h2 id="case-summary-title" className="font-display text-3xl">Síntesis del panel</h2>
-          {view.synthesis ? (
-            <>
-              <p className="mt-1 text-xs text-ink-soft">Por el moderador · {view.synthesis.majority ? "Opinión mayoritaria de los analistas" : "Sin mayoría: posiciones de los analistas"}</p>
-              <p className="mt-3 whitespace-pre-line leading-relaxed"><Cited text={view.synthesis.text} ctx={citations} /></p>
-            </>
-          ) : <p className="mt-3 text-sm text-ink-soft">No hay síntesis del moderador registrada para esta consulta.</p>}
-          <p className="mt-3 text-xs text-ink-soft">Las preguntas no se califican: el panel responde y el moderador sintetiza sus respuestas.</p>
+          <p className="mt-1 text-xs text-ink-soft">Por el moderador · Las preguntas no se califican: el panel responde y el moderador sintetiza sus respuestas.</p>
+          {view.questions.map((question) => (
+            <article key={question.id} id={question.id} aria-label={"Pregunta " + question.id} className="mt-5 scroll-mt-24 border-t border-rule pt-4 target:rounded-sm target:bg-celeste/10">
+              <p className="font-mono text-[11px] text-ink-soft">{question.id}</p>
+              <h3 className="mt-1 break-words font-display text-xl leading-snug"><Cited text={question.text} ctx={citations} /></h3>
+              <Synthesis synthesis={question.synthesis} citations={citations} />
+            </article>
+          ))}
+          {(view.synthesis || !view.questions.length) && <Synthesis synthesis={view.synthesis} citations={citations} />}
         </section>
       ) : !view.dismissal && (view.summary || tieBreaks.length > 0 || (quick && c.status === "resolved")) && (
         <section aria-labelledby="case-summary-title" className="mt-8 rule-double pt-5">

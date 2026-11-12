@@ -2,7 +2,6 @@
 
 import { startTransition, useActionState, useEffect, useId, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent, type KeyboardEvent } from "react";
 import { requestFactCheck, type RequestField, type RequestState } from "@/app/actions.ts";
-import { canIdentifyClaims, type CaseUser } from "@/lib/case-access.ts";
 
 const KINDS = [
   { id: "text", label: "Texto" },
@@ -43,7 +42,7 @@ const field =
   "w-full rounded-sm border border-rule bg-paper/80 px-4 py-3 text-base outline-none transition focus:border-celeste-deep focus:ring-2 focus:ring-celeste/30 aria-invalid:border-falso aria-invalid:ring-2 aria-invalid:ring-falso/20";
 const label = "mb-1.5 block text-sm font-medium text-ink";
 
-export function RequestForm({ user }: { user?: CaseUser | null }) {
+export function RequestForm() {
   const [kind, setKind] = useState<Kind>("text");
   const [text, setText] = useState("");
   const [image, setImage] = useState<{ name: string; size: number }>();
@@ -53,8 +52,6 @@ export function RequestForm({ user }: { user?: CaseUser | null }) {
   const uid = useId();
   const ids = {
     language: uid + "-language",
-    identifyClaims: uid + "-identify-claims",
-    claimsHint: uid + "-claims-hint",
     text: uid + "-text",
     url: uid + "-url",
     linkNote: uid + "-link-note",
@@ -67,7 +64,7 @@ export function RequestForm({ user }: { user?: CaseUser | null }) {
 
   // A client check wins over the last server answer; an error about a field of another kind is not shown.
   const shown = local ?? state;
-  const problem = shown.error && (!shown.field || shown.field === "language" || shown.field === "identifyClaims" || FIELDS[kind].includes(shown.field)) ? shown : undefined;
+  const problem = shown.error && (!shown.field || shown.field === "language" || FIELDS[kind].includes(shown.field)) ? shown : undefined;
   const invalid = (f: RequestField) => problem?.field === f || undefined;
   const describedBy = (f: RequestField, extra?: string) => [extra, problem?.field === f ? ids.error : undefined].filter(Boolean).join(" ") || undefined;
 
@@ -153,13 +150,6 @@ export function RequestForm({ user }: { user?: CaseUser | null }) {
         <p className="mt-1 text-xs text-ink-soft">Detectar usa el idioma del material enviado; español se trata como español latinoamericano.</p>
       </div>
 
-      {canIdentifyClaims(user) && <div className="mt-5">
-        <label htmlFor={ids.identifyClaims} className="flex cursor-pointer items-start gap-2 text-sm text-ink">
-          <input type="checkbox" id={ids.identifyClaims} name="identifyClaims" aria-invalid={invalid("identifyClaims")} aria-describedby={describedBy("identifyClaims", ids.claimsHint)} className="mt-0.5 size-4 accent-ink" />
-          Identificar afirmaciones independientes
-        </label>
-        <p id={ids.claimsHint} className="mt-1 text-xs text-ink-soft">Si el material tiene afirmaciones, el moderador separa hasta cinco; los analistas votan cada una y el contenido completo, sin debate. No se aplica a preguntas. Puede tardar un poco más.</p>
-      </div>}
 
       <fieldset className="mt-5">
         <legend className="sr-only">Tipo de material</legend>

@@ -85,11 +85,14 @@ export function checkType(s: Submission): CheckType {
   return s.check ?? "expert";
 }
 
-// What the moderator finds in the material of a Quick check, before any
-// research: claims to check and rate, or questions for the panel to answer,
-// without any rating. Cases recorded before the classification are claims.
-export const CONTENT_KINDS = ["claims", "questions"] as const;
+// What the classifier finds in the material of a Quick check, before any
+// research: assertions to check and rate, or questions for the panel to answer,
+// without any rating; and each of them, as items. Cases recorded before the
+// classification are assertions.
+export const CONTENT_KINDS = ["assertion", "question"] as const;
 export type ContentKind = (typeof CONTENT_KINDS)[number];
+// The identifiers of the items: A1, A2... for assertions, P1, P2... for questions.
+export const ITEM_PREFIX: Record<ContentKind, string> = { assertion: "A", question: "P" };
 
 export interface SubmissionContext {
   title: string;
@@ -160,7 +163,8 @@ export interface SourceView extends UnifiedSource {
 export type CourtEvent =
   | { type: "session_opened"; judgeModel: string; counselModels: Record<Counsel, string>; judgeEffort?: string | null; counselEfforts?: Record<Counsel, string | null>; simulated?: boolean }
   | { type: "claims_entered"; claims: Claim[] }
-  | { type: "content_classified"; kind: ContentKind }
+  // Assertion items are the claims of the case; question items are answered.
+  | { type: "content_classified"; kind: ContentKind; items: Claim[] }
   | { type: "dismissed"; reason: string }
   | { type: "instruction_opened" }
   | { type: "evidence_filed"; evidence: Evidence }
@@ -186,9 +190,10 @@ export type CourtEvent =
   | { type: "content_vote"; by: Counsel; verdict: Verdict | null; rationale: string }
   | { type: "content_judgment"; verdict: Verdict; method: "consensus" | "judge"; reasoning: string }
   | { type: "case_summary"; text: string }
-  // Questions: the moderator's synthesis of the answers, of the majority's
-  // opinion when at least three analysts agree, else of each position.
-  | { type: "answer_synthesis"; text: string; majority: boolean }
+  // Questions: the moderator's synthesis of the answers to one question (to the
+  // whole material when no question was identified), of the majority's opinion
+  // when at least three analysts agree, else of each position.
+  | { type: "answer_synthesis"; questionId?: string; text: string; majority: boolean }
   | { type: "absence"; by: Counsel; stage: Stage | "discovery" | "instruction" | "source_review" | "objection" | "content" | "answer" }
   | { type: "session_closed" };
 
@@ -232,6 +237,12 @@ export interface ClaimView extends Claim {
   judgment?: { verdict: Verdict; method: "consensus" | "judge"; reasoning: string };
 }
 
+export type AnswerSynthesis = { text: string; majority: boolean };
+
+export interface QuestionView extends Claim {
+  synthesis?: AnswerSynthesis;
+}
+
 export interface CaseView {
   claims: ClaimView[];
   contentVotes: Partial<Record<Counsel, { verdict: Verdict | null; rationale: string }>>;
@@ -239,9 +250,11 @@ export interface CaseView {
   contentJudgment?: { verdict: Verdict; method: "consensus" | "judge"; reasoning: string };
   // Quick check: each analyst's answer.
   responses: Partial<Record<Counsel, { text: string; sources: QuickSource[] }>>;
-  // Absent on cases recorded before the classification: they are claims.
+  // Absent on cases recorded before the classification: they are assertions.
   contentKind?: ContentKind;
-  synthesis?: { text: string; majority: boolean };
+  questions: QuestionView[];
+  // The synthesis of the whole material, when no question was identified.
+  synthesis?: AnswerSynthesis;
   evidence: Map<string, Evidence>;
   sources: Map<string, SourceView>;
   struck: Set<string>;
@@ -251,7 +264,7 @@ export interface CaseView {
 }
 
 export function project(events: readonly CourtEvent[]): CaseView {
-  const view: CaseView = { claims: [], contentVotes: {}, contentVotingRecorded: false, responses: {}, evidence: new Map(), sources: new Map(), struck: new Set(), closed: false };
+  const view: CaseView = { claims: [], contentVotes: {}, contentVotingRecorded: false, responses: {}, questions: [], evidence: new Map(), sources: new Map(), struck: new Set(), closed: false };
   const objectionTarget = new Map<string, string>();
   const claim = (id: string) => view.claims.find((c) => c.id === id);
   for (const e of events) {
@@ -261,10 +274,16 @@ export function project(events: readonly CourtEvent[]): CaseView {
         break;
       case "content_classified":
         view.contentKind = e.kind;
+        if (e.kind === "assertion") view.claims = e.items.map((c) => ({ ...c, votes: {} }));
+        else view.questions = e.items.map((q) => ({ ...q }));
         break;
-      case "answer_synthesis":
-        view.synthesis = { text: e.text, majority: e.majority };
+      case "answer_synthesis": {
+        const synthesis = { text: e.text, majority: e.majority };
+        const question = e.questionId ? view.questions.find((q) => q.id === e.questionId) : undefined;
+        if (question) question.synthesis = synthesis;
+        else if (!e.questionId) view.synthesis = synthesis;
         break;
+      }
       case "dismissed":
         view.dismissal = e.reason;
         break;

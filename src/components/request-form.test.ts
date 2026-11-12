@@ -25,36 +25,12 @@ test("the form uses native radios and visible labels, and keeps every kind mount
   assert.deepEqual(sets.map((f) => f.hasAttribute("hidden")), [false, true, true]);
 });
 
-test("the form offers no check type: the Expert check is disabled", () => {
-  for (const user of [undefined, { sub: "user", roles: ["Admin"] }]) {
-    const { document } = parseHTML(renderToStaticMarkup(createElement(RequestForm, { user })));
-    assert.equal(document.querySelector('[name="check"]'), null);
-    assert.doesNotMatch(document.toString(), /Tipo de chequeo|Experto|Rápido/);
-  }
-});
-
-test("independent claims are an accessible unchecked option", () => {
-  const { document } = parseHTML(renderToStaticMarkup(createElement(RequestForm, { user: { sub: "user", roles: ["Contrib"] } })));
-  const option = document.querySelector<HTMLInputElement>('input[type="checkbox"][name="identifyClaims"]')!;
-  assert.ok(option);
-  assert.ok(!option.hasAttribute("checked"));
-  assert.ok(!option.hasAttribute("disabled"));
-  assert.equal(document.querySelector(`label[for="${option.id}"]`)?.textContent?.trim(), "Identificar afirmaciones independientes");
-  const hint = document.getElementById(option.getAttribute("aria-describedby")!)!;
-  assert.match(hint.textContent!, /cada una y el contenido completo, sin debate\. No se aplica a preguntas/);
-});
-
-test("independent claims are only rendered for authenticated Contrib or Admin roles", () => {
-  for (const roles of [["Contrib"], ["Admin"], ["reader", "Contrib"], ["Contrib", "Admin"]]) {
-    const { document } = parseHTML(renderToStaticMarkup(createElement(RequestForm, { user: { sub: "user", roles } })));
-    assert.ok(document.querySelector('[name="identifyClaims"]'));
-  }
-  for (const user of [undefined, null, { roles: ["Contrib"] }, { sub: "user" }, { sub: "user", roles: ["reader"] },
-    { sub: "user", roles: ["contrib"] }, { sub: "user", roles: ["admin"] }, { sub: "user", roles: "Admin" }, { sub: "user", roles: ["SuperAdmin"] }]) {
-    const { document } = parseHTML(renderToStaticMarkup(createElement(RequestForm, { user })));
-    assert.equal(document.querySelector('[name="identifyClaims"]'), null);
-    assert.ok(document.querySelector('button[type="submit"]'), "ordinary checks stay available");
-  }
+test("the form offers no check type and no claim option: the Expert check is disabled and the classifier identifies the items", () => {
+  const { document } = parseHTML(renderToStaticMarkup(createElement(RequestForm)));
+  assert.equal(document.querySelector('[name="check"]'), null);
+  assert.equal(document.querySelector('[name="identifyClaims"]'), null);
+  assert.doesNotMatch(document.toString(), /Tipo de chequeo|Experto|Rápido|Identificar afirmaciones/);
+  assert.ok(document.querySelector('button[type="submit"]'));
 });
 
 test("the text counter says what is missing below the minimum, else how much is used", () => {

@@ -1,4 +1,4 @@
-export const USAGE_ROLES = ["moderator", "analyst", "translator", "interpreter", "captioner", "x", "coverSearch", "coverReview", "imagine", "evaluator"] as const;
+export const USAGE_ROLES = ["moderator", "classifier", "analyst", "translator", "interpreter", "captioner", "x", "coverSearch", "coverReview", "imagine", "evaluator"] as const;
 export type UsageRole = typeof USAGE_ROLES[number];
 
 export interface TokenUsage {
@@ -43,7 +43,7 @@ export function usageCalls(records: readonly unknown[]): UsageCall[] {
     if (record.kind !== "model_step" || typeof record.modelId !== "string") return [];
     if (typeof record.id === "string") { if (seen.has(record.id)) return []; seen.add(record.id); }
     const role = USAGE_ROLES.includes(data.role as UsageRole) ? data.role as UsageRole
-      : record.seat === "judge" ? "moderator" : typeof record.seat === "string" ? "analyst" : undefined;
+      : record.seat === "judge" ? "moderator" : record.seat === "classifier" ? "classifier" : typeof record.seat === "string" ? "analyst" : undefined;
     if (!role) return [];
     return [{ provider: record.modelId.includes("/") ? record.modelId.split("/")[0]! : "unknown", model: record.modelId, effort: typeof record.effort === "string" ? record.effort : null, role, ...normalizeUsage(data.usage) }];
   });

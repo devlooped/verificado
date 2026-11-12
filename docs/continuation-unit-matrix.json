@@ -1661,8 +1661,8 @@
       "id": "quick.classify",
       "routes": ["quick:1", "quick:2", "quick:3", "quick:4", "quick:5"],
       "dependsOn": ["case.language"],
-      "key": "quick/judge/classify/attempt/request-hash",
-      "result": "QuickClassification claims o questions y at; sólo en workflows iniciados con classifyContent; hasta 2 intentos, sin clasificación el material es claims",
+      "key": "quick/classifier/classify/attempt/request-hash",
+      "result": "QuickClassification del rol classifier: kind assertion o question, items A#/P# con quote/text y at; sólo en workflows iniciados con classifyContent; hasta 2 intentos, sin clasificación se chequea el material completo",
       "effects": ["model", "artifact", "sql"],
       "evidence": [
         { "file": "src/workflows/court-session.ts", "symbol": "classifyQuick" },
@@ -1677,8 +1677,8 @@
       "id": "quick.synthesis",
       "routes": ["quick:1", "quick:2", "quick:3", "quick:4", "quick:5"],
       "dependsOn": ["quick.classify", "quick.answer"],
-      "key": "quick/judge/synthesis/attempt/request-hash",
-      "result": "QuickSynthesis no vacía con majority sobre al menos tres respuestas a preguntas; sin votos ni calificación; hasta 2 intentos",
+      "key": "quick/judge/question-or-content/synthesis/attempt/request-hash",
+      "result": "QuickSynthesis no vacía con majority por pregunta (o del material completo) sobre al menos tres respuestas; sin votos ni calificación; hasta 2 intentos",
       "effects": ["model", "artifact", "sql"],
       "evidence": [
         { "file": "src/workflows/court-session.ts", "symbol": "synthesizeQuick" },

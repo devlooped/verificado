@@ -143,12 +143,27 @@ function QuickResponse({ e }: { e: Extract<RecordedEvent, { type: "quick_respons
 function Entry({ e, ctx }: { e: RecordedEvent; ctx: Context }) {
   const { view } = ctx;
   const quick = Object.keys(view.responses).length > 0;
-  const questions = view.contentKind === "questions";
+  const questions = view.contentKind === "question";
   switch (e.type) {
     case "session_opened":
       return <Clerk>{e.simulated && "Simulación local · fuentes y respuestas ficticias · "}{questions ? "Empieza la consulta" : quick ? "Empieza el chequeo" : "Empieza el debate"} · {time(e.at)}</Clerk>;
     case "content_classified":
-      return <Clerk>El moderador clasifica el material · {e.kind === "questions" ? "preguntas para responder, sin calificación" : "afirmaciones para chequear"}</Clerk>;
+      return (
+        <div className="flex gap-3">
+          <span className="grid size-9 shrink-0 place-items-center rounded-full bg-seal text-paper"><GavelIcon className="size-4" /></span>
+          <div>
+            <p className="text-sm font-semibold">
+              {e.kind === "question" ? "El clasificador identifica preguntas para responder, sin calificación" : "El clasificador identifica afirmaciones para chequear"}
+              {!e.items.length && <span className="font-normal text-ink-soft"> · sin separarlas: se trata el material completo</span>}
+            </p>
+            {e.items.length > 0 && (
+              <ol className="mt-1 space-y-1 text-sm">
+                {e.items.map((c) => <li key={c.id} id={ctx.live ? c.id : undefined}>{e.kind === "assertion" ? <Cited text={c.id} ctx={ctx} /> : <span className="font-mono">{c.id}</span>} <Cited text={c.text} ctx={ctx} /></li>)}
+              </ol>
+            )}
+          </div>
+        </div>
+      );
     case "quick_response":
       return <QuickResponse e={e} />;
     case "claims_entered":
@@ -316,7 +331,7 @@ function Entry({ e, ctx }: { e: RecordedEvent; ctx: Context }) {
     case "answer_synthesis":
       return (
         <div className="text-sm">
-          <p className="font-semibold">Síntesis del moderador · {e.majority ? "opinión mayoritaria" : "sin mayoría: posiciones de los analistas"}</p>
+          <p className="font-semibold">Síntesis del moderador{e.questionId && " sobre " + e.questionId} · {e.majority ? "opinión mayoritaria" : "sin mayoría: posiciones de los analistas"}</p>
           <p className="mt-1 whitespace-pre-line text-ink-soft"><Cited text={e.text} ctx={ctx} /></p>
         </div>
       );
@@ -427,7 +442,8 @@ function summaryOf(section: Section, view: CaseView): string {
   const plural = (n: number, one: string, many: string) => n + " " + (n === 1 ? one : many);
   switch (section.key) {
     case "apertura":
-      if (view.contentKind === "questions") return "Consulta";
+      if (view.contentKind === "question") return view.questions.length ? plural(view.questions.length, "pregunta a responder", "preguntas a responder") : "Consulta";
+      if (view.contentKind === "assertion" && view.claims.length) return plural(view.claims.length, "afirmación a examinar", "afirmaciones a examinar");
       if (Object.keys(view.responses).length) return "Chequeo";
       return view.dismissal ? "Caso descartado" : plural(view.claims.length, "afirmación a examinar", "afirmaciones a examinar");
     case "respuestas":
@@ -446,7 +462,7 @@ function summaryOf(section: Section, view: CaseView): string {
       return "Expediente común · " + plural(sources.length, "fuente", "fuentes") + " · " + plural(sources.filter((s) => s.excluded).length, "anulada", "anuladas");
     }
     case "resultado":
-      if (view.contentKind === "questions") return view.synthesis ? "Síntesis del moderador" : "Sin síntesis";
+      if (view.contentKind === "question") return plural(view.questions.filter((q) => q.synthesis).length + (view.synthesis ? 1 : 0), "síntesis del moderador", "síntesis del moderador");
       if (Object.keys(view.responses).length) return (count("vote") ? plural(count("vote"), "voto", "votos") + " por afirmación · " : "") + plural(count("content_vote"), "voto", "votos") + " sobre el contenido completo";
       return plural(count("judgment"), "resultado", "resultados");
     default: {

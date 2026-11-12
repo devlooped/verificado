@@ -197,31 +197,39 @@ test("the optional quick flow runs end to end through simulated calls for text, 
   }
 });
 
-test("the classification, the answers to questions and their synthesis write their request, result and model step", async () => {
+test("the classifier, the answers to questions and their syntheses write their request, result and model step", async () => {
   const artifacts = new MemoryArtifactStore();
   const audit: Array<{ id: string; body: Record<string, unknown> }> = [];
   const question: Submission = { kind: "text", text: "¿Cuántos habitantes tiene la Argentina?", check: "quick" };
-  const classified = await quickClassify(CASE, question, MODEL, 0, deps("classify", artifacts, audit));
+  const classifier = courtModel("openai/gpt-6.1-terra", "medium");
+  const classified = await quickClassify(CASE, question, "es", classifier, 0, deps("classify", artifacts, audit), "2026-11-11");
   assert.ok(!failed(classified));
-  assert.equal(classified.kind, "questions");
-  const claims = await quickClassify(CASE, { kind: "text", text: "La Argentina tiene 46 millones de habitantes." }, MODEL, 1, deps("classify", artifacts, audit));
-  assert.ok(!failed(claims));
-  assert.equal(claims.kind, "claims");
-  const answer = await quickAnswer(CASE, question, "es", MODEL, "gemini", 0, deps("answer", artifacts, audit), [], "2026-11-11", true);
+  assert.equal(classified.kind, "question");
+  assert.deepEqual(classified.items.map((item) => item.id), ["P1"]);
+  const assertions = await quickClassify(CASE, { kind: "text", text: "La Argentina tiene 46 millones de habitantes." }, "es", classifier, 1, deps("classify", artifacts, audit));
+  assert.ok(!failed(assertions));
+  assert.equal(assertions.kind, "assertion");
+  assert.deepEqual(assertions.items.map((item) => item.id), ["A1", "A2"]);
+  const answer = await quickAnswer(CASE, question, "es", MODEL, "gemini", 0, deps("answer", artifacts, audit), classified.items, "2026-11-11", true);
   assert.ok(!failed(answer));
-  const synthesis = await quickSynthesize(CASE, question, "es", MODEL, [{ by: "gemini", answer: answer.text }], 0, deps("synthesis", artifacts, audit), "2026-11-11");
+  const synthesis = await quickSynthesize(CASE, question, "es", MODEL, [{ by: "gemini", answer: answer.text }], 0, deps("synthesis", artifacts, audit), "2026-11-11", classified.items[0]);
   assert.ok(!failed(synthesis));
   assert.equal(synthesis.majority, true);
   assert.match(synthesis.text, /SIMULACIÓN LOCAL/);
+  assert.ok(!failed(await quickSynthesize(CASE, question, "es", MODEL, [{ by: "gemini", answer: answer.text }], 0, deps("synthesis", artifacts, audit))));
 
   const files = await artifacts.read(CASE);
   const read = (path: string) => JSON.parse(new TextDecoder().decode(files.get(path)));
-  assert.match(JSON.stringify(read("quick/judge/classify-0/request.json").messages), /MATERIAL: ¿Cuántos/);
-  assert.deepEqual(read("quick/judge/classify-0/request.json").output.properties.kind.enum, ["claims", "questions"]);
+  const classifyRequest = read("quick/classifier/classify-0/request.json");
+  assert.equal(classifyRequest.modelId, "openai/gpt-6.1-terra");
+  assert.match(JSON.stringify(classifyRequest.messages), /MATERIAL: ¿Cuántos/);
+  assert.deepEqual(classifyRequest.output.properties.kind.enum, ["assertion", "question"]);
+  assert.ok(classifyRequest.output.properties.items);
   const asked = read("quick/gemini/answer-0/request.json");
-  assert.match(JSON.stringify(asked.messages), /QUESTION: ¿Cuántos/);
+  assert.match(JSON.stringify(asked.messages), /QUESTION: ¿Cuántos.*Questions identified:.*P1/);
   assert.doesNotMatch(JSON.stringify(asked), /FACT CHECK/);
   assert.match(asked.system, /Do not rate the questions/);
-  assert.match(JSON.stringify(read("quick/judge/synthesis-0/request.json").messages), /## Gemini/);
-  assert.deepEqual(audit.map((a) => a.id), ["quick:judge:classify:0", "quick:judge:classify:1", "quick:gemini:answer:0", "quick:judge:synthesis:0"]);
+  assert.match(JSON.stringify(read("quick/judge/claims/P1/synthesis-0/request.json").messages), /## Gemini.*ONLY to this question.*P1/);
+  assert.ok(files.has("quick/judge/synthesis-0/request.json"), "a synthesis of the whole material has no question");
+  assert.deepEqual(audit.map((a) => [a.id, a.body.seat]), [["quick:classifier:classify:0", "classifier"], ["quick:classifier:classify:1", "classifier"], ["quick:gemini:answer:0", "gemini"], ["quick:judge:claim:P1:synthesis:0", "judge"], ["quick:judge:synthesis:0", "judge"]]);
 });

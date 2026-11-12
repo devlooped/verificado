@@ -300,20 +300,23 @@ test("a Quick check lists each analyst's answer with its cited pages, then the v
   assert.doesNotMatch(document.toString(), /afirmaciones a examinar|Empieza el debate/);
 });
 
-test("questions list the classification and the answers, an absent answer, and no votes, while the result card holds the synthesis", () => {
+test("questions list the classification and the answers, an absent answer, and no votes, while the result card holds the syntheses", () => {
   const input: CourtEvent[] = [
     { type: "session_opened", judgeModel: "anthropic/claude-opus-5.5", counselModels: { grok: "g", gemini: "m", claude: "c", chatgpt: "o" } },
-    { type: "content_classified", kind: "questions" },
+    { type: "content_classified", kind: "question", items: [{ id: "P1", quote: "", text: "¿Cuántos habitantes tiene la Argentina?" }] },
     ...COUNSEL.slice(0, 3).map((by): CourtEvent => ({ type: "quick_response", by, text: "Respuesta de " + by, sources: [] })),
     { type: "absence", by: "chatgpt", stage: "answer" },
-    { type: "answer_synthesis", text: "Síntesis que no se repite en el registro.", majority: true },
+    { type: "answer_synthesis", questionId: "P1", text: "Síntesis que no se repite en el registro.", majority: true },
     { type: "session_closed" },
   ];
   const { document } = parseHTML(render(input));
   const html = document.toString();
   assert.deepEqual([...document.querySelectorAll("summary h3")].map((h) => h.textContent), ["Apertura", "Respuestas", "Resultado"]);
   assert.match(html, /Empieza la consulta ·/);
-  assert.match(html, /preguntas para responder, sin calificación/);
+  assert.match(html, /El clasificador identifica preguntas para responder, sin calificación/);
+  assert.match(html, /P1.*¿Cuántos habitantes tiene la Argentina\?/s);
+  assert.match(html, /1 pregunta a responder/);
+  assert.match(html, /1 síntesis del moderador/);
   assert.match(html, /ChatGPT no se pronunció en la respuesta/);
   assert.match(html, /Termina la consulta ·/);
   assert.doesNotMatch(html, /Síntesis que no se repite en el registro|votos? sobre el contenido completo/);

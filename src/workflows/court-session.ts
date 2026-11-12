@@ -303,19 +303,19 @@ async function prepareEvidence(caseId: string, spec: TurnSpec, simulated: boolea
 
 // A Quick check: one step per generation, so a completed paid answer is not
 // paid again when the workflow replays.
-async function classifyQuick(caseId: string, submission: Submission, model: CourtModel, attempt: number, simulated: boolean) {
+async function classifyQuick(caseId: string, submission: Submission, language: string, model: CourtModel, attempt: number, simulated: boolean, date: string) {
   "use step";
   return observeCaseStep(caseId, "quick_classify", { "turn.attempt": attempt }, async () => {
-    const result = await quickClassify(caseId, submission, model, attempt, simulated ? simulatedQuickDependencies("classify") : undefined);
+    const result = await quickClassify(caseId, submission, language, model, attempt, simulated ? simulatedQuickDependencies("classify") : undefined, date);
     if ("error" in result) caseLog(caseId, "warn", "case.quick.failed", { "turn.kind": "classify", "turn.attempt": attempt });
     return result;
   });
 }
 
-async function synthesizeQuick(caseId: string, submission: Submission, language: string, model: CourtModel, responses: QuickResponse[], attempt: number, simulated: boolean, date: string) {
+async function synthesizeQuick(caseId: string, submission: Submission, language: string, model: CourtModel, responses: QuickResponse[], attempt: number, simulated: boolean, date: string, question: Claim | null) {
   "use step";
   return observeCaseStep(caseId, "quick_synthesis", { "turn.attempt": attempt }, async () => {
-    const result = await quickSynthesize(caseId, submission, language, model, responses, attempt, simulated ? simulatedQuickDependencies("synthesis") : undefined, date);
+    const result = await quickSynthesize(caseId, submission, language, model, responses, attempt, simulated ? simulatedQuickDependencies("synthesis") : undefined, date, question ?? undefined);
     if ("error" in result) caseLog(caseId, "warn", "case.quick.failed", { "turn.kind": "synthesis", "turn.attempt": attempt });
     return result;
   });
@@ -371,8 +371,9 @@ function describeError(err: unknown): string {
   return message.slice(0, 500);
 }
 
-// classifyContent: runs started with it classify the material of a Quick check
-// as claims or questions, and never run an Expert check, which is disabled.
+// classifyContent: runs started with it have the classifier sort the material
+// of a Quick check into assertions or questions, and never run an Expert check,
+// which is disabled.
 // Runs started before it replay without either.
 export async function courtSession(caseId: string, latestPipeline = false, quickMajoritySummary = false, datedCase = false, classifyContent = false): Promise<void> {
   "use workflow";
@@ -399,10 +400,11 @@ export async function courtSession(caseId: string, latestPipeline = false, quick
         submission, simulated, ...seats,
         identify: (attempt) => datedCase ? identifyQuick(caseId, submission, language, models.judge, attempt, simulated, caseDate) : identifyQuick(caseId, submission, language, models.judge, attempt, simulated),
         ...(classifyContent ? {
-          classify: (attempt: number) => classifyQuick(caseId, submission, models.judge, attempt, simulated),
-          synthesize: (responses: QuickResponse[], attempt: number) => synthesizeQuick(caseId, submission, language, models.judge, responses, attempt, simulated, caseDate),
+          // A snapshot taken before the classifier existed has no such role.
+          classify: (attempt: number) => classifyQuick(caseId, submission, language, models.classifier ?? models.judge, attempt, simulated, caseDate),
+          synthesize: (responses: QuickResponse[], attempt: number, question?: Claim) => synthesizeQuick(caseId, submission, language, models.judge, responses, attempt, simulated, caseDate, question ?? null),
         } : {}),
-        answer: (by, attempt, claims, questions) => questions ? answerQuick(caseId, submission, language, counsel[by], by, attempt, simulated, [], caseDate, true) : datedCase ? answerQuick(caseId, submission, language, counsel[by], by, attempt, simulated, claims ?? [], caseDate) : submission.identifyClaims ? answerQuick(caseId, submission, language, counsel[by], by, attempt, simulated, claims) : answerQuick(caseId, submission, language, counsel[by], by, attempt, simulated),
+        answer: (by, attempt, claims, questions) => questions ? answerQuick(caseId, submission, language, counsel[by], by, attempt, simulated, claims ?? [], caseDate, true) : datedCase ? answerQuick(caseId, submission, language, counsel[by], by, attempt, simulated, claims ?? [], caseDate) : submission.identifyClaims ? answerQuick(caseId, submission, language, counsel[by], by, attempt, simulated, claims) : answerQuick(caseId, submission, language, counsel[by], by, attempt, simulated),
         vote: (by, answer, attempt, retry, claim) => datedCase ? voteQuick(caseId, submission, language, counsel[by], by, answer, attempt, retry, simulated, claim ?? null, caseDate) : claim ? voteQuick(caseId, submission, language, counsel[by], by, answer, attempt, retry, simulated, claim) : voteQuick(caseId, submission, language, counsel[by], by, answer, attempt, retry, simulated),
         tiebreak: (entries, attempt, claim) => datedCase ? tiebreakQuick(caseId, submission, language, models.judge, entries, attempt, simulated, claim ?? null, caseDate) : claim ? tiebreakQuick(caseId, submission, language, models.judge, entries, attempt, simulated, claim) : tiebreakQuick(caseId, submission, language, models.judge, entries, attempt, simulated),
         ...(quickMajoritySummary ? { summarize: (majorities: QuickMajority[], attempt: number) => summarizeQuick(caseId, language, models.judge, majorities, attempt, simulated) } : {}),

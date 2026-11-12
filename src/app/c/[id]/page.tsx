@@ -66,7 +66,7 @@ function InSession({ c, events, activities }: { c: StoredCaseRecord; events: Rec
       <p className="mx-auto mt-4 max-w-md text-ink-soft">
         {COUNSEL_NAMES} están respondiendo tu consulta, cada uno con su propia búsqueda. Podés seguir el diálogo abajo; cuando terminen vas a ver el resultado y el registro completo.
       </p>
-      <SessionProgress events={events} queued={c.status === "queued"} check={check} identifyClaims={c.submission.identifyClaims} collectionProgress={c.pipelineVersion === 4 || c.pipelineVersion === 5} />
+      <SessionProgress events={events} queued={c.status === "queued"} check={check} collectionProgress={c.pipelineVersion === 4 || c.pipelineVersion === 5} />
       <p className="mx-auto mt-6 max-w-md text-xs text-ink-soft">
         Esta página se actualiza sola. Podés cerrarla: el análisis sigue y el resultado queda en esta misma dirección.{" "}
         <Link href="/method" className="text-celeste-deep underline underline-offset-4">Cómo trabaja el panel</Link>
@@ -118,7 +118,7 @@ async function ResolvedCase({ c, id, revision }: { c: CaseRecord; id: string; re
   const view = project(events);
   const models = seatModels(c, events);
   const quick = checkType(c.submission) === "quick";
-  const questions = view.contentKind === "questions";
+  const questions = view.contentKind === "question";
 
   return (
     <div className="case-enter">

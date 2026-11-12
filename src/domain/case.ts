@@ -9,7 +9,7 @@ export function submissionExcerpt(s: Submission): string {
 // What the panel did with the material: one kind of check, whatever court
 // recorded it, or questions answered without any rating.
 export function caseKindLabel(view: Pick<CaseView, "contentKind">): string {
-  return view.contentKind === "questions" ? "Consulta" : "Chequeo";
+  return view.contentKind === "question" ? "Consulta" : "Chequeo";
 }
 
 export const STAGE_LABEL: Record<Stage, string> = {
@@ -72,7 +72,7 @@ export function describe(e: CourtEvent): string {
     case "claims_entered":
       return "El moderador fija las afirmaciones a examinar:\n" + e.claims.map((c) => "[" + c.id + "] " + c.text).join("\n");
     case "content_classified":
-      return "El moderador clasifica el material: " + (e.kind === "questions" ? "preguntas para responder, sin calificación." : "afirmaciones para chequear.");
+      return "El clasificador identifica " + (e.kind === "question" ? "preguntas para responder, sin calificación" : "afirmaciones para chequear") + (e.items.length ? ":\n" + e.items.map((c) => "[" + c.id + "] " + c.text).join("\n") : ", sin separarlas: se trata el material completo.");
     case "dismissed":
       return "El moderador descarta el caso: " + e.reason;
     case "instruction_opened":
@@ -124,7 +124,7 @@ export function describe(e: CourtEvent): string {
     case "case_summary":
       return "Resumen del moderador: " + e.text;
     case "answer_synthesis":
-      return "Síntesis del moderador (" + (e.majority ? "opinión mayoritaria" : "sin mayoría: posiciones del panel") + "): " + e.text;
+      return "Síntesis del moderador" + (e.questionId ? " sobre " + e.questionId : "") + " (" + (e.majority ? "opinión mayoritaria" : "sin mayoría: posiciones del panel") + "): " + e.text;
     case "absence":
       return MODEL_NAME[e.by] + " no se pronunció en la " + ABSENCE_LABEL[e.stage] + ".";
     case "session_closed":

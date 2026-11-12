@@ -105,7 +105,7 @@ async function CaseCard({ c, cover, index, admin }: { c: CaseRecord; cover?: str
         </Link>
         <div className="flex flex-1 flex-col p-4">
           <p className="font-mono text-[11px] uppercase tracking-widest text-ink-soft">
-            {shortDate(c.createdAt)} · {view?.contentKind === "questions" ? "Consulta" : claims.length ? claims.length + (claims.length === 1 ? " afirmación" : " afirmaciones") : "Material"}
+            {shortDate(c.createdAt)} · {view?.contentKind === "question" ? (view.questions.length ? view.questions.length + (view.questions.length === 1 ? " pregunta" : " preguntas") : "Consulta") : claims.length ? claims.length + (claims.length === 1 ? " afirmación" : " afirmaciones") : "Material"}
           </p>
           <div className="mt-2 flex-1">
             {view?.dismissal ? (
@@ -114,12 +114,22 @@ async function CaseCard({ c, cover, index, admin }: { c: CaseRecord; cover?: str
               <ol className="divide-y divide-rule">
                 {claims.slice(0, MAX_CLAIMS).map((claim) => <ClaimLine key={claim.id} c={c} claim={claim} voted={voted} models={models} />)}
               </ol>
+            ) : view?.questions.length ? (
+              <ol className="divide-y divide-rule">
+                {view.questions.slice(0, MAX_CLAIMS).map((question) => (
+                  <li key={question.id} className="py-3 first:pt-0 last:pb-0">
+                    <Link href={caseHref(c.id) + "#" + question.id} className="line-clamp-3 font-display text-lg leading-snug transition hover:text-celeste-deep">
+                      {question.text}<CaseLinkStatus />
+                    </Link>
+                  </li>
+                ))}
+              </ol>
             ) : (
               <p className="line-clamp-3 font-display text-lg italic leading-snug text-ink-soft">«{submissionExcerpt(c.submission)}»</p>
             )}
           </div>
           <Link href={caseHref(c.id)} className="mt-4 self-start text-sm text-celeste-deep hover:underline">
-            {view?.contentKind === "questions" ? "Ver respuestas y síntesis →" : hidden > 0 ? "Ver " + hidden + (hidden === 1 ? " afirmación más" : " afirmaciones más") + " y el debate →" : "Ver fundamentos y debate →"}<CaseLinkStatus />
+            {view?.contentKind === "question" ? "Ver respuestas y síntesis →" : hidden > 0 ? "Ver " + hidden + (hidden === 1 ? " afirmación más" : " afirmaciones más") + " y el debate →" : "Ver fundamentos y debate →"}<CaseLinkStatus />
           </Link>
         </div>
       </article>

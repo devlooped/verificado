@@ -17,19 +17,19 @@ test("the diagram shows the classification, the questions path without rating, a
   assert.match(region?.getAttribute("aria-label") ?? "", /chequeo/);
   assert.equal(region?.getAttribute("tabindex"), "0");
   for (const text of [
+    "El clasificador lee el material",
+    "separa hasta cinco ítems",
     "¿afirmaciones o preguntas?",
-    "y responden las preguntas",
+    "y responden cada pregunta",
+    "Por cada pregunta:",
     "¿Respondieron al menos 3?",
     "Sin síntesis",
     "la opinión mayoritaria",
     "las posiciones de los analistas",
     "Sin calificación de las preguntas",
     "Los cuatro analistas investigan en paralelo",
-    "¿Identificar afirmaciones independientes?",
-    "separa hasta cinco afirmaciones",
-    "y cada afirmación, si se eligió",
+    "cada afirmación y el contenido completo",
     "Por cada resultado:",
-    "contenido completo con fundamentos",
     "Resultado por mayoría",
     "El moderador resume los fundamentos",
     "¿Hay al menos 3 votos?",
@@ -37,7 +37,7 @@ test("the diagram shows the classification, the questions path without rating, a
     "las respuestas y los votos, sin investigar",
     "Resultado con fundamento del moderador",
   ]) assert.ok(svg.textContent?.replace(/\s/g, "").includes(text.replace(/\s/g, "")), text);
-  for (const edge of ["Q -- Preguntas --> R", "S -- No --> T", "U -- Sí --> V", "U -- No --> W", "Q -- Afirmaciones --> O", "O -- Sí --> P", "O -- No --> B", "P --> B", "E -- Sí --> F", "F --> L", "M -- No --> H", "E -- No --> G", "G -- No --> H", "G -- Sí --> I", "J -- No --> H"]) {
+  for (const edge of ["Q -- Preguntas --> R", "S -- No --> T", "U -- Sí --> V", "U -- No --> W", "Q -- Afirmaciones --> B", "B --> C", "E -- Sí --> F", "F --> L", "M -- No --> H", "E -- No --> G", "G -- No --> H", "G -- Sí --> I", "J -- No --> H"]) {
     assert.ok(PROCESS_DIAGRAM.includes(edge), edge);
   }
 });
@@ -49,6 +49,8 @@ test("the method page explains one check, after the four possible results, and n
   assert.doesNotMatch(text, /reintent|administrador|\badmin\b|\bcontrib\b/i);
   assert.doesNotMatch(text, /expert|instrucción|crítica de fuentes y debate/i);
   assert.match(text, /no se votan ni se califican/);
+  assert.match(text, /modelo clasificador/);
+  assert.doesNotMatch(text, /Identificar afirmaciones independientes/);
   const sections = [...page.querySelectorAll("main section, section")];
   const results = sections.findIndex((section) => section.id === "resultados");
   const process = sections.findIndex((section) => section.id === "proceso");

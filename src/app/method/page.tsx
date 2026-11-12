@@ -12,10 +12,10 @@ export const metadata: Metadata = {
 };
 
 const STEPS = [
-  { n: "I", title: "Clasificación", body: "El moderador lee el material y distingue si trae afirmaciones para chequear o preguntas para responder, sin investigarlo ni responderlo." },
+  { n: "I", title: "Clasificación", body: "Un modelo clasificador lee el material, distingue si trae afirmaciones para chequear o preguntas para responder y separa cada una, hasta cinco, sin investigarlas ni responderlas." },
   { n: "II", title: "Respuestas", body: COUNSEL_NAMES + " investigan en paralelo, cada uno con las herramientas de búsqueda de su proveedor, y responden con sus palabras, sin debatir entre sí." },
-  { n: "III", title: "Afirmaciones", body: "Cada analista vota el contenido completo: verdadero, falso, insostenible o engañoso. Si tres coinciden, hay mayoría. Si no, desempata el moderador." },
-  { n: "IV", title: "Preguntas", body: "No se califican. El moderador sintetiza la opinión mayoritaria de los analistas o, si no hay mayoría, sus distintas posiciones." },
+  { n: "III", title: "Afirmaciones", body: "Cada analista vota cada afirmación y el contenido completo: verdadero, falso, insostenible o engañoso. Si tres coinciden, hay mayoría. Si no, desempata el moderador." },
+  { n: "IV", title: "Preguntas", body: "No se califican. Para cada pregunta, el moderador sintetiza la opinión mayoritaria de los analistas o, si no hay mayoría, sus distintas posiciones." },
 ];
 
 const VERDICT_MEANING: Record<Verdict, string> = {
@@ -34,7 +34,7 @@ export default function MethodPage() {
           ¿Es cierto lo que leíste? <em className="text-celeste-deep">Que lo chequeen.</em>
         </h1>
         <p className="mt-4 max-w-3xl font-display text-2xl leading-snug text-ink-soft sm:text-3xl">
-          Cuatro analistas, un moderador, cero opiniones humanas.
+          Un clasificador, cuatro analistas, un moderador, cero opiniones humanas.
         </p>
         <p className="mt-5 max-w-2xl text-lg leading-relaxed text-ink-soft">
           Presentá un texto, un enlace o una imagen. Si trae afirmaciones, el panel las chequea y las vota; si trae preguntas, las responde y el moderador sintetiza sus respuestas. Nadie edita, nadie opina, todo queda en el registro público.
@@ -96,13 +96,10 @@ export default function MethodPage() {
       <section id="afirmaciones-y-preguntas" className="mt-12 scroll-mt-6">
         <h2 className="font-display text-3xl">Afirmaciones y preguntas</h2>
         <p className="mt-3 max-w-3xl text-sm leading-relaxed text-ink-soft">
-          Antes de que los analistas empiecen, el moderador clasifica el material. Si trae <strong className="text-ink">afirmaciones</strong>, como una noticia, un posteo o una declaración, o si pide verificar una (“¿es cierto que…?”), el panel le pregunta a cada analista, en paralelo, si el contenido es cierto: cada uno busca con las herramientas de su proveedor, responde con sus palabras y vota sobre el contenido completo. Tres votos coincidentes dan el resultado y el moderador resume brevemente sus fundamentos, sin investigar ni cambiar la calificación; si hay al menos tres votos sin mayoría, desempata con el contenido, las respuestas y los votos. Con menos de tres votos no hay resultado. No hay crítica de fuentes ni debate, y las páginas que cita cada respuesta son las de su proveedor, no fuentes revisadas por el panel.
+          Antes de que los analistas empiecen, un modelo clasificador lee el material y separa cada afirmación o cada pregunta, hasta cinco. Si trae <strong className="text-ink">afirmaciones</strong>, como una noticia, un posteo o una declaración, o si pide verificar una (“¿es cierto que…?”), cada analista, en paralelo, busca con las herramientas de su proveedor y responde con sus palabras sobre esas afirmaciones y el conjunto, y luego vota cada afirmación y el contenido completo por separado. Para cada resultado, tres votos coincidentes deciden y el moderador resume brevemente los fundamentos de las mayorías, sin investigar ni cambiar la calificación; si hay al menos tres votos sin mayoría, desempata con el contenido, las respuestas y los votos. Con menos de tres votos no hay resultado. Si el material solo trae opiniones, se vota solo el contenido completo. No hay crítica de fuentes ni debate, y las páginas que cita cada respuesta son las de su proveedor, no fuentes revisadas por el panel.
         </p>
         <p className="mt-3 max-w-3xl text-sm leading-relaxed text-ink-soft">
-          La opción <strong className="text-ink">Identificar afirmaciones independientes</strong> permite que el moderador lea el material y separe hasta cinco afirmaciones. Cada analista realiza una sola investigación rápida que cubre esas afirmaciones y el conjunto, y luego vota cada afirmación y el contenido completo por separado, aunque sean independientes entre sí. Cada resultado usa la misma regla de tres votos y desempate; el resumen distingue las mayorías de cada resultado. Si no hay afirmaciones factuales, se vota solo el contenido completo. La opción está desactivada por defecto y puede tardar un poco más; no agrega debate ni crítica de fuentes.
-        </p>
-        <p className="mt-3 max-w-3xl text-sm leading-relaxed text-ink-soft">
-          Si el material le hace al panel una o varias <strong className="text-ink">preguntas</strong>, cada analista las responde con su propia búsqueda, y el moderador redacta una síntesis de las respuestas, sin investigar ni agregar datos propios: si al menos tres analistas coinciden, sintetiza esa opinión mayoritaria; si no, sintetiza las distintas posiciones y quién sostiene cada una. Las preguntas no se votan ni se califican, ni una por una ni en conjunto. Con menos de tres respuestas no hay síntesis.
+          Si el material le hace al panel una o varias <strong className="text-ink">preguntas</strong>, cada analista las responde una por una con su propia búsqueda, y para cada pregunta el moderador redacta una síntesis de las respuestas, sin investigar ni agregar datos propios: si al menos tres analistas coinciden, sintetiza esa opinión mayoritaria; si no, sintetiza las distintas posiciones y quién sostiene cada una. Las preguntas no se votan ni se califican, ni una por una ni en conjunto. Con menos de tres respuestas no hay síntesis.
         </p>
       </section>
 

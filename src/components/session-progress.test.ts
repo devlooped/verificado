@@ -38,43 +38,36 @@ test("collection progress displays consulted counts and legacy cases keep their 
   assert.match(legacy.querySelector('[role="status"]')!.textContent, /Etapa 2 de 4: Crítica de fuentes/);
 });
 
-test("a Quick check shows two stages: the answers, then the result", () => {
-  assert.equal(quickStage([{ type: "session_opened" }, { type: "quick_response" }]), 0);
-  assert.equal(quickStage([{ type: "quick_response" }, { type: "content_vote" }]), 1);
-  const { document } = parseHTML(renderToStaticMarkup(createElement(SessionProgress, { events: [{ type: "session_opened", judgeModel: "j", counselModels: { grok: "g", gemini: "m", claude: "c", chatgpt: "o" } }], queued: false, check: "quick" })));
-  const steps = [...document.querySelectorAll("ol li")];
-  assert.equal(steps.length, QUICK_PROGRESS_STEPS.length);
-  assert.match(document.querySelector('[role="status"]')!.textContent, /Etapa 1 de 2: Respuestas/);
-  assert.match(document.toString(), /Los analistas están respondiendo/);
-  assert.doesNotMatch(document.toString(), /moderador está identificando/);
-});
-
 test("a queued case shows no current stage", () => {
   const { document } = parseHTML(renderToStaticMarkup(createElement(SessionProgress, { events: [], queued: true })));
   assert.equal(document.querySelector('[aria-current="step"]'), null);
   assert.match(document.toString(), /en espera/);
 });
 
-test("optional Quick claims add identification before answers and individual votes advance to results", () => {
-  assert.equal(quickStage([], true), 0);
-  assert.equal(quickStage([claims], true), 1);
-  assert.equal(quickStage([claims, { type: "vote" }], true), 2);
-  const render = (events: CourtEvent[], queued = false) => parseHTML(renderToStaticMarkup(createElement(SessionProgress, { events, queued, check: "quick", identifyClaims: true }))).document;
-  assert.match(render([]).querySelector('[role="status"]')!.textContent!, /Etapa 1 de 3: Afirmaciones/);
-  assert.match(render([]).toString(), /moderador está identificando/);
-  assert.match(render([claims]).querySelector('[role="status"]')!.textContent!, /Etapa 2 de 3: Respuestas/);
+test("a Quick check is classified first, then answered, and its votes advance to results", () => {
+  const classified: CourtEvent = { type: "content_classified", kind: "assertion", items: [{ id: "A1", quote: "q", text: "t" }] };
+  assert.equal(quickStage([]), 0);
+  assert.equal(quickStage([classified]), 1);
+  assert.equal(quickStage([claims]), 1, "runs before the classifier identified their claims");
+  assert.equal(quickStage([classified, { type: "vote" }]), 2);
+  const render = (events: CourtEvent[], queued = false) => parseHTML(renderToStaticMarkup(createElement(SessionProgress, { events, queued, check: "quick" }))).document;
+  assert.deepEqual([...render([]).querySelectorAll("ol li")].map((li) => li.textContent?.replace(/\s*\(.*\)$/, "")), [...QUICK_PROGRESS_STEPS]);
+  assert.match(render([]).querySelector('[role="status"]')!.textContent!, /Etapa 1 de 3: Clasificación/);
+  assert.match(render([]).toString(), /clasificador está identificando afirmaciones o preguntas/);
+  assert.match(render([classified]).querySelector('[role="status"]')!.textContent!, /Etapa 2 de 3: Respuestas/);
+  assert.match(render([classified, { type: "content_vote", by: "grok", verdict: "falso", rationale: "r" }]).toString(), /Los analistas están votando/);
   assert.equal(render([], true).querySelector('[aria-current="step"]'), null);
 });
 
 test("questions progress from the answers to the moderator's synthesis, without a result stage", () => {
-  const classified: CourtEvent = { type: "content_classified", kind: "questions" };
-  const progress = (events: CourtEvent[]) => parseHTML(renderToStaticMarkup(createElement(SessionProgress, { events, queued: false, check: "quick", identifyClaims: true }))).document;
+  const classified: CourtEvent = { type: "content_classified", kind: "question", items: [{ id: "P1", quote: "", text: "¿Cuántos?" }] };
+  const progress = (events: CourtEvent[]) => parseHTML(renderToStaticMarkup(createElement(SessionProgress, { events, queued: false, check: "quick" }))).document;
   const answering = progress([classified]);
   assert.deepEqual([...answering.querySelectorAll("ol li")].map((li) => li.textContent?.replace(/\s*\(.*\)$/, "")), [...QUESTIONS_PROGRESS_STEPS]);
-  assert.match(answering.querySelector('[role="status"]')!.textContent, /Etapa 1 de 2: Respuestas/);
+  assert.match(answering.querySelector('[role="status"]')!.textContent, /Etapa 2 de 3: Respuestas/);
   assert.match(answering.toString(), /Los analistas están respondiendo las preguntas/);
   const synthesizing = progress([classified, { type: "quick_response", by: "grok", text: "Respuesta", sources: [] }]);
-  assert.match(synthesizing.querySelector('[role="status"]')!.textContent, /Etapa 2 de 2: Síntesis/);
+  assert.match(synthesizing.querySelector('[role="status"]')!.textContent, /Etapa 3 de 3: Síntesis/);
   assert.match(synthesizing.toString(), /El moderador está sintetizando las respuestas/);
-  assert.doesNotMatch(synthesizing.toString(), /Resultado|Afirmaciones|votando/);
+  assert.doesNotMatch(synthesizing.toString(), /Resultado|votando/);
 });

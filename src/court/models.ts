@@ -69,6 +69,7 @@ export type TierName = (typeof TIERS)[number];
 export type ModelRole =
   | "judge"
   | `counsel.${Counsel}`
+  | "classifier"
   | "image.description"
   | "language"
   | "translator"
@@ -112,11 +113,13 @@ const COUNSEL_LABEL: Record<Counsel, string> = { grok: "Grok", gemini: "Gemini",
 // AI Gateway catalog IDs, shared by execution and the recorded case events. These are
 // the defaults; an admin can override each role from /admin.
 export const MODEL_ROLES: readonly ModelRoleDefinition[] = [
-  { key: "judge", group: "Debate", label: "Moderador", description: "Instruye el caso, resuelve objeciones y desempata.", kind: "language", defaultId: "spacexai/grok-4.7", defaultEffort: "high", configurableEffort: true, requires: SEAT },
+  { key: "judge", group: "Debate", label: "Moderador", description: "Instruye el caso, resuelve objeciones, desempata y sintetiza las respuestas a preguntas.", kind: "language", defaultId: "spacexai/grok-4.7", defaultEffort: "high", configurableEffort: true, requires: SEAT },
   { key: "counsel.grok", group: "Debate", label: "Analista Grok", description: "Asiento de Grok en el panel.", kind: "language", defaultId: "spacexai/grok-4.7", defaultEffort: "high", configurableEffort: true, requires: SEAT },
   { key: "counsel.gemini", group: "Debate", label: "Analista Gemini", description: "Asiento de Gemini en el panel.", kind: "language", defaultId: "google/gemini-4-argon", defaultEffort: "high", configurableEffort: true, requires: SEAT },
   { key: "counsel.claude", group: "Debate", label: "Analista Claude", description: "Asiento de Claude en el panel.", kind: "language", defaultId: "anthropic/claude-opus-5.5", defaultEffort: "high", configurableEffort: true, requires: SEAT },
   { key: "counsel.chatgpt", group: "Debate", label: "Analista ChatGPT", description: "Asiento de ChatGPT en el panel.", kind: "language", defaultId: "openai/gpt-6.1-sol", defaultEffort: "high", configurableEffort: true, requires: SEAT },
+  // Reads the material first, a submitted link or image included: its typed answer drives what the panel does.
+  { key: "classifier", group: "Soporte", label: "Clasificador", description: "Decide si el material trae afirmaciones para chequear o preguntas para responder, e identifica cada una antes de que el panel investigue.", kind: "language", defaultId: "openai/gpt-6.1-terra", defaultEffort: "medium", configurableEffort: true, requires: ["structured-output", "vision", "tool-use"] },
   { key: "image.description", group: "Soporte", label: "Descripción de imágenes", description: "Describe y transcribe una sola vez la imagen enviada; el panel trabaja con esa descripción en lugar de la imagen.", kind: "language", defaultId: "openai/gpt-6.1-terra", defaultEffort: "high", configurableEffort: true, requires: ["structured-output", "vision"] },
   { key: "language", group: "Soporte", label: "Detección de idioma", description: "Identifica el idioma del material enviado, incluidas imágenes sin descripción.", kind: "language", defaultId: "anthropic/claude-haiku-5.5", defaultEffort: null, configurableEffort: true, requires: ["structured-output", "vision"] },
   { key: "translator", group: "Soporte", label: "Traductor", description: "Traduce las fuentes descargadas y la evidencia promovida al idioma del caso.", kind: "language", defaultId: "google/gemini-3.5-flash-lite", defaultEffort: null, configurableEffort: true, requires: ["structured-output"] },

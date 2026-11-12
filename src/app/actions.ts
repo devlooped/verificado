@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import type { Submission } from "@/domain/court.ts";
 import { auth0 } from "@/lib/auth0.ts";
-import { BETA_MESSAGE, canIdentifyClaims, canRequestCase, isAdmin } from "@/lib/case-access.ts";
+import { BETA_MESSAGE, canRequestCase, isAdmin } from "@/lib/case-access.ts";
 import { startCourtSession } from "@/lib/case-workflow.ts";
 import { createNewCase, finishCase } from "@/store.ts";
 
@@ -35,7 +35,7 @@ const RequestForm = z.discriminatedUnion("kind", [
   }),
 ]);
 
-export type RequestField = "text" | "url" | "note" | "image" | "language" | "identifyClaims";
+export type RequestField = "text" | "url" | "note" | "image" | "language";
 // The field names the input to fix, so the form can mark and focus it.
 export type RequestState = { error?: string; field?: RequestField };
 
@@ -50,11 +50,6 @@ export async function requestFactCheck(_prev: RequestState, formData: FormData):
   // The Expert check is disabled: the form offers no type, and a request for another one is refused.
   const check = z.literal("quick", { error: "El chequeo experto está deshabilitado." }).default("quick").safeParse(formData.get("check") ?? undefined);
   if (!check.success) return { error: check.error.issues[0]?.message };
-  const identifyClaims = z.literal("on", { error: "Elegí una opción de afirmaciones válida." }).optional().safeParse(formData.get("identifyClaims") ?? undefined);
-  if (!identifyClaims.success) return { error: identifyClaims.error.issues[0]?.message, field: "identifyClaims" };
-  if (identifyClaims.data === "on" && !canIdentifyClaims(user)) {
-    return { error: "Identificar afirmaciones independientes requiere el rol Contrib o Admin.", field: "identifyClaims" };
-  }
   const parsed = RequestForm.safeParse(Object.fromEntries(formData));
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
@@ -71,7 +66,6 @@ export async function requestFactCheck(_prev: RequestState, formData: FormData):
   } else {
     submission = { ...input, language: language.data, check: check.data };
   }
-  if (identifyClaims.data === "on") submission.identifyClaims = true;
   const id = await createNewCase(submission, image, user.sub);
   try {
     await startCourtSession(id);

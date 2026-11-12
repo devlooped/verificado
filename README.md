@@ -65,28 +65,37 @@ before anything is deleted (a workflow started for one fails at once). The type 
 still stored with the submission as `check`; cases recorded before it read as
 Expert, and their records still display, without naming the check type.
 
-### Claims or questions
+### Assertions or questions
 
-A Quick check opens with the moderator classifying the material, without
-researching or answering it: **claims** (a news item, a post, a statement, or a
-request to verify one, "is it true that...?") or **questions** that the panel is
-asked to answer. The classification is recorded as `content_classified`. When the
-moderator cannot classify the material in two attempts, it is checked as claims,
-without that event; cases recorded before the classification are claims too.
+A Quick check opens with a classifier model (the `classifier` role, set like
+the others from /admin) reading the material, without researching or answering
+it. Its typed answer (`quickClassificationSchema`) has a
+`kind`, `assertion` (a news item, a post, a statement, or a request to verify
+one, "is it true that...?") or `question` (questions the panel is asked to
+answer), and `items`: each assertion or question of that kind, at most five, with
+the passage it quotes. Items are numbered `A1`... or `P1`..., and the whole is
+recorded as `content_classified`. The kind drives the rest: the analysts check
+assertions or answer questions; each assertion is voted on, with its majority or
+tie-break, while the moderator synthesizes the answers to each question. When the
+classifier cannot classify the material in two attempts, it is checked as a whole,
+without items and without that event; cases recorded before the classification
+are assertions too. The former option to identify independent claims is gone:
+every check has its items now.
 
 Questions are not checked and receive no rating at all, neither each question nor
-the whole: no claims are identified (even when the request asked for it), and
-nobody votes. Each analyst answers `QUESTION: <content>` with its own search,
-like a Quick answer; a seat without an answer after two attempts is recorded as
-absent. With at least three answers, the moderator writes a synthesis from the
-answers alone, without tools, recorded as `answer_synthesis`: the majority's
-answer when at least three analysts substantially agree on every question
-(`majority: true`), otherwise each position and who holds it (`majority: false`).
-Fewer than three answers, or a synthesis that fails twice, fail the case.
+the whole: nobody votes. Each analyst answers `QUESTION: <content>` and the list
+of questions with its own search, like a Quick answer; a seat without an answer
+after two attempts is recorded as absent. With at least three answers, the
+moderator writes, for each question, a synthesis from the answers alone, without
+tools, recorded as `answer_synthesis` with its `questionId`: the majority's
+answer when at least three analysts substantially agree (`majority: true`),
+otherwise each position and who holds it (`majority: false`). Without identified
+questions, one synthesis covers the material. Fewer than three answers, or a
+synthesis that fails twice, fail the case.
 
-### Quick check of claims
+### Quick check of assertions
 
-A Quick check of claims has no instruction, instruction, source review, debate, objections or
+A Quick check of assertions has no instruction, instruction, source review, debate, objections or
 moderator summary. Each of the four analysts, in parallel, receives the case
 language rule and `FACT CHECK: <content>` (a link with the submitter's note, or
 the image with its note), answers in prose using its provider's own web search

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { COUNSEL, project, type Claim, type Counsel, type RecordedEvent, type Verdict } from "../domain/court.ts";
 import { languageRule } from "../domain/language.ts";
-import { holdQuickSession, QUICK_VOTE_REQUEST, quickClaimsPrompt, quickClaimsSchema, quickClassificationSchema, quickClassifyPrompt, quickPrompt, quickSummaryPrompt, quickSynthesisPrompt, quickSynthesisSchema, quickTiebreakPrompt, quickVoteMessages, type QuickAnswer, type QuickBench, type QuickClaims, type QuickClassification, type QuickDecision, type QuickEntry, type QuickFailure, type QuickMajority, type QuickResponse, type QuickSynthesis, type QuickVote } from "./quick.ts";
+import { classifiedItems, holdQuickSession, QUICK_VOTE_REQUEST, quickClaimsPrompt, quickClaimsSchema, quickClassificationSchema, quickClassifyPrompt, quickPrompt, quickSummaryPrompt, quickSynthesisPrompt, quickSynthesisSchema, quickTiebreakPrompt, quickVoteMessages, type QuickAnswer, type QuickBench, type QuickClaims, type QuickClassification, type QuickDecision, type QuickEntry, type QuickFailure, type QuickMajority, type QuickResponse, type QuickSynthesis, type QuickVote } from "./quick.ts";
 
 const MODELS = { judge: "spacexai/grok-4.7", counsel: { grok: "spacexai/grok-4.7", gemini: "google/gemini-4-argon", claude: "anthropic/claude-opus-5.5", chatgpt: "openai/gpt-6.1-sol" } };
 const AT = "2026-11-07T12:00:00.000Z";
@@ -327,99 +327,128 @@ test("claims prompts cover independent findings, targeted votes and tie-breaks, 
 });
 
 // A bench that classifies the material first, as workflows started with classifyContent do.
+const QUESTIONS: Claim[] = [
+  { id: "P1", quote: "¿Cuántos habitantes tiene la Argentina?", text: "¿Cuántos habitantes tiene la Argentina según el último censo?" },
+  { id: "P2", quote: "¿Y Uruguay?", text: "¿Cuántos habitantes tiene Uruguay según el último censo?" },
+];
 function classifyingBench(kinds: Array<QuickClassification | QuickFailure>, synthesis: Array<QuickSynthesis | QuickFailure> = [], answers: Script["answers"] = {}) {
   const made = makeBench({ answers });
-  const asked: boolean[] = [];
-  const syntheses: QuickResponse[][] = [];
+  const asked: Array<{ questions: boolean; items: readonly Claim[] }> = [];
+  const syntheses: Array<{ responses: QuickResponse[]; question?: string }> = [];
   const answer = made.bench.answer;
-  made.bench.submission = { kind: "text", text: "¿Cuántos habitantes tiene la Argentina según el último censo?", check: "quick", identifyClaims: true };
+  made.bench.submission = { kind: "text", text: "¿Cuántos habitantes tiene la Argentina? ¿Y Uruguay?", check: "quick", identifyClaims: true };
   made.bench.classify = async (attempt) => { made.calls.push("classify:" + attempt); return kinds[attempt] ?? { error: "no classification" }; };
-  made.bench.answer = async (by, attempt, claims, questions) => { asked.push(questions === true); return answer(by, attempt, claims); };
-  made.bench.synthesize = async (responses, attempt) => {
-    made.calls.push("synthesize:" + attempt);
-    syntheses.push(responses);
-    return synthesis[attempt] ?? { text: "La mayoría responde con la cifra del censo.", majority: true, at: AT };
+  made.bench.answer = async (by, attempt, claims, questions) => { asked.push({ questions: questions === true, items: claims ?? [] }); return answer(by, attempt, claims); };
+  let calls = 0;
+  made.bench.synthesize = async (responses, attempt, question) => {
+    made.calls.push("synthesize:" + (question?.id ?? "-") + ":" + attempt);
+    syntheses.push({ responses, ...(question ? { question: question.id } : {}) });
+    return synthesis[calls++] ?? { text: "Síntesis de " + (question?.id ?? "todo") + ".", majority: true, at: AT };
   };
   return { ...made, asked, syntheses };
 }
 
-test("questions are answered by the four analysts and synthesized by the moderator, with no claims, votes or rating", async () => {
-  const { bench, events, calls, asked, syntheses } = classifyingBench([{ kind: "questions", at: AT }]);
+test("questions are each answered by the four analysts and synthesized by the moderator, with no claims, votes or rating", async () => {
+  const { bench, events, calls, asked, syntheses } = classifyingBench([{ kind: "question", items: QUESTIONS, at: AT }]);
   await holdQuickSession(bench);
-  assert.deepEqual(events.map((e) => e.type), ["session_opened", "content_classified", ...COUNSEL.map(() => "quick_response"), "answer_synthesis", "session_closed"]);
+  assert.deepEqual(events.map((e) => e.type), ["session_opened", "content_classified", ...COUNSEL.map(() => "quick_response"), "answer_synthesis", "answer_synthesis", "session_closed"]);
   assert.deepEqual(events.map((e) => e.seq), events.map((_, i) => i + 1));
-  assert.ok(!calls.some((call) => call.startsWith("identify") || call.startsWith("vote") || call.startsWith("tiebreak")), "identifyClaims does not apply to questions");
-  assert.deepEqual(asked, COUNSEL.map(() => true));
-  assert.deepEqual(syntheses, [COUNSEL.map((by) => ({ by, answer: "Respuesta de " + by }))]);
-  const synthesis = events.find((e) => e.type === "answer_synthesis");
-  assert.deepEqual(synthesis && { ...synthesis, seq: 0 }, { type: "answer_synthesis", text: "La mayoría responde con la cifra del censo.", majority: true, seq: 0, at: AT });
+  assert.ok(!calls.some((call) => call.startsWith("identify") || call.startsWith("vote") || call.startsWith("tiebreak")), "the old claim identification does not run after a classification");
+  assert.deepEqual(asked, COUNSEL.map(() => ({ questions: true, items: QUESTIONS })));
+  const responses = COUNSEL.map((by) => ({ by, answer: "Respuesta de " + by }));
+  assert.deepEqual(syntheses, [{ responses, question: "P1" }, { responses, question: "P2" }]);
+  assert.deepEqual(events.filter((e) => e.type === "answer_synthesis").map((e) => e.type === "answer_synthesis" && [e.questionId, e.text, e.majority]), [["P1", "Síntesis de P1.", true], ["P2", "Síntesis de P2.", true]]);
   const view = project(events);
-  assert.equal(view.contentKind, "questions");
-  assert.deepEqual(view.synthesis, { text: "La mayoría responde con la cifra del censo.", majority: true });
+  assert.equal(view.contentKind, "question");
+  assert.deepEqual(view.questions.map((q) => [q.id, q.synthesis]), [["P1", { text: "Síntesis de P1.", majority: true }], ["P2", { text: "Síntesis de P2.", majority: true }]]);
+  assert.deepEqual(view.claims, []);
   assert.equal(view.contentJudgment, undefined);
   assert.equal(view.contentVotingRecorded, false);
 });
 
-test("without a majority the synthesis of the positions is recorded as such, after a failed attempt", async () => {
-  const { bench, events, calls } = classifyingBench([{ kind: "questions", at: AT }], [{ error: "no object" }, { text: " Grok y Gemini sostienen una cifra; Claude y ChatGPT, otra. ", majority: false, at: AT }]);
+test("without a majority on a question its positions are synthesized as such, after a failed attempt", async () => {
+  const { bench, events, calls } = classifyingBench([{ kind: "question", items: QUESTIONS, at: AT }], [{ error: "no object" }, { text: " Grok y Gemini sostienen una cifra; Claude y ChatGPT, otra. ", majority: false, at: AT }]);
   await holdQuickSession(bench);
-  assert.deepEqual(calls.filter((call) => call.startsWith("synthesize")), ["synthesize:0", "synthesize:1"]);
+  assert.deepEqual(calls.filter((call) => call.startsWith("synthesize")), ["synthesize:P1:0", "synthesize:P1:1", "synthesize:P2:0"]);
+  const first = events.find((e) => e.type === "answer_synthesis");
+  assert.deepEqual(first?.type === "answer_synthesis" && [first.questionId, first.text, first.majority], ["P1", "Grok y Gemini sostienen una cifra; Claude y ChatGPT, otra.", false]);
+});
+
+test("questions without identified items get one synthesis of the whole material", async () => {
+  const { bench, events, syntheses } = classifyingBench([{ kind: "question", items: [], at: AT }]);
+  await holdQuickSession(bench);
+  assert.deepEqual(syntheses.map((s) => s.question), [undefined]);
   const synthesis = events.find((e) => e.type === "answer_synthesis");
-  assert.equal(synthesis?.type === "answer_synthesis" && synthesis.text, "Grok y Gemini sostienen una cifra; Claude y ChatGPT, otra.");
-  assert.equal(synthesis?.type === "answer_synthesis" && synthesis.majority, false);
+  assert.ok(synthesis?.type === "answer_synthesis" && !("questionId" in synthesis));
+  assert.deepEqual(project(events).synthesis, { text: "Síntesis de todo.", majority: true });
 });
 
 test("questions with fewer than three answers record the absences and fail without a synthesis", async () => {
   const failure = { error: "timeout" };
-  const { bench, events, calls } = classifyingBench([{ kind: "questions", at: AT }], [], { claude: [failure, failure], chatgpt: [failure, failure] });
+  const { bench, events, calls } = classifyingBench([{ kind: "question", items: QUESTIONS, at: AT }], [], { claude: [failure, failure], chatgpt: [failure, failure] });
   await assert.rejects(holdQuickSession(bench), /Menos de tres analistas respondieron.*Claude: timeout.*ChatGPT: timeout/);
   assert.deepEqual(events.filter((e) => e.type === "absence").map((e) => e.type === "absence" && [e.by, e.stage]), [["claude", "answer"], ["chatgpt", "answer"]]);
   assert.ok(!calls.some((call) => call.startsWith("synthesize")));
   assert.ok(!events.some((e) => e.type === "answer_synthesis" || e.type === "session_closed"));
 });
 
-test("a failed synthesis fails the questions without inventing one", async () => {
-  const { bench, events } = classifyingBench([{ kind: "questions", at: AT }], [{ error: "a" }, { text: "  ", majority: true, at: AT }]);
-  await assert.rejects(holdQuickSession(bench), /no sintetizó/);
+test("a failed synthesis of a question fails the case without inventing one", async () => {
+  const { bench, events } = classifyingBench([{ kind: "question", items: QUESTIONS, at: AT }], [{ error: "a" }, { text: "  ", majority: true, at: AT }]);
+  await assert.rejects(holdQuickSession(bench), /no sintetizó las respuestas de la consulta para P1/);
   assert.ok(!events.some((e) => e.type === "answer_synthesis" || e.type === "session_closed"));
 });
 
-test("claims are checked as before, after their classification is recorded", async () => {
-  const { bench, events, asked } = classifyingBench([{ error: "no object" }, { kind: "claims", at: AT }]);
+test("assertion items are the claims: each one and the whole are voted, with their tie-breaks, after a retried classification", async () => {
+  const { bench, events, asked, calls } = classifyingBench([{ error: "no object" }, { kind: "assertion", items: CLAIMS, at: AT }]);
   await holdQuickSession(bench);
-  assert.deepEqual(events.slice(0, 3).map((e) => e.type), ["session_opened", "content_classified", "claims_entered"]);
+  assert.deepEqual(events.slice(0, 2).map((e) => e.type), ["session_opened", "content_classified"]);
+  assert.ok(!events.some((e) => e.type === "claims_entered" || e.type === "answer_synthesis"));
+  assert.ok(!calls.some((call) => call.startsWith("identify") || call.startsWith("synthesize")));
+  assert.deepEqual(asked, COUNSEL.map(() => ({ questions: false, items: CLAIMS })));
+  assert.deepEqual(events.filter((e) => e.type === "vote").map((e) => e.type === "vote" && e.claimId), COUNSEL.flatMap(() => ["A1", "A2"]));
+  assert.deepEqual(events.filter((e) => e.type === "judgment").map((e) => e.type === "judgment" && e.claimId), ["A1", "A2"]);
   assert.ok(events.some((e) => e.type === "content_judgment"));
-  assert.ok(!events.some((e) => e.type === "answer_synthesis"));
-  assert.deepEqual(asked, COUNSEL.map(() => false));
-  assert.equal(project(events).contentKind, "claims");
+  const view = project(events);
+  assert.equal(view.contentKind, "assertion");
+  assert.deepEqual(view.claims.map((c) => [c.id, c.judgment?.verdict]), [["A1", "falso"], ["A2", "falso"]]);
 });
 
-test("material the moderator cannot classify is checked as claims, without a classification event", async () => {
-  const { bench, events, calls } = classifyingBench([]);
+test("material the moderator cannot classify is checked as a whole, without items or a classification event", async () => {
+  const { bench, events, calls, asked } = classifyingBench([]);
   await holdQuickSession(bench);
   assert.deepEqual(calls.filter((call) => call.startsWith("classify")), ["classify:0", "classify:1"]);
-  assert.ok(!events.some((e) => e.type === "content_classified"));
+  assert.ok(!calls.some((call) => call.startsWith("identify")), "the old option does not apply to a classified run");
+  assert.ok(!events.some((e) => e.type === "content_classified" || e.type === "claims_entered" || e.type === "vote"));
+  assert.deepEqual(asked, COUNSEL.map(() => ({ questions: false, items: [] })));
   assert.ok(events.some((e) => e.type === "content_judgment"));
 });
 
-test("the classification, the answers to questions and their synthesis have their own prompts", () => {
+test("the classification, the answers to questions and their syntheses have their own prompts", () => {
   const submission = { kind: "text" as const, text: "¿Quién ganó el Mundial 2022?", check: "quick" as const };
-  const classify = quickClassifyPrompt(submission);
-  assert.match(classify.system, /claims to check or asks questions to answer/);
+  const classify = quickClassifyPrompt(submission, "es", undefined, "2026-11-11");
+  assert.match(classify.system, /asserts facts to check or asks questions to answer, and identify each assertion or question/);
+  assert.match(classify.system, /2026-11-11/);
   assert.equal(classify.messages[0]?.content, "MATERIAL: ¿Quién ganó el Mundial 2022?");
-  assert.equal(quickClassificationSchema.safeParse({ kind: "questions" }).success, true);
-  assert.equal(quickClassificationSchema.safeParse({ kind: "opinion" }).success, false);
+  assert.equal(quickClassificationSchema.safeParse({ kind: "question", items: [{ quote: "¿Quién ganó?", text: "¿Quién ganó el Mundial 2022?" }] }).success, true);
+  assert.equal(quickClassificationSchema.safeParse({ kind: "questions", items: [] }).success, false);
+  assert.equal(quickClassificationSchema.safeParse({ kind: "assertion" }).success, false, "items are required");
+  assert.equal(quickClassificationSchema.safeParse({ kind: "assertion", items: Array(6).fill({ quote: "", text: "Una afirmación verificable." }) }).success, false);
   assert.match(String(quickClassificationSchema.shape.kind.description), /Is it true that/);
-  const answer = quickPrompt(submission, "es", undefined, [], undefined, true);
-  assert.equal(answer.messages.length, 1);
+  assert.deepEqual(classifiedItems("question", [{ quote: "a", text: "b" }, { quote: "c", text: "d" }]).map((c) => c.id), ["P1", "P2"]);
+  assert.deepEqual(classifiedItems("assertion", [{ quote: "a", text: "b" }]), [{ id: "A1", quote: "a", text: "b" }]);
+  const answer = quickPrompt(submission, "es", undefined, QUESTIONS, undefined, true);
   assert.equal(answer.messages[0]?.content, "QUESTION: ¿Quién ganó el Mundial 2022?");
+  assert.match(String(answer.messages[1]?.content), /Questions identified:.*P1.*P2/s);
   assert.match(answer.system, /Answer each of them/);
+  assert.match(answer.system, /separately, by its identifier/);
   assert.match(answer.system, /Do not rate the questions/);
   assert.doesNotMatch(JSON.stringify(answer), /FACT CHECK/);
-  const synthesis = quickSynthesisPrompt(submission, "es", [{ by: "grok", answer: "Argentina." }, { by: "claude", answer: "La Argentina." }]);
+  const synthesis = quickSynthesisPrompt(submission, "es", [{ by: "grok", answer: "Argentina." }, { by: "claude", answer: "La Argentina." }], undefined, undefined, QUESTIONS[1]);
   assert.match(synthesis.system, /at least three analysts/);
   assert.match(synthesis.system, /Do not rate/);
-  assert.match(JSON.stringify(synthesis.messages), /## Grok\\nArgentina\..*## Claude\\nLa Argentina\./);
+  assert.match(synthesis.system, /ONLY the answers to the question/);
+  assert.match(JSON.stringify(synthesis.messages), /## Grok\\nArgentina\..*## Claude\\nLa Argentina\..*ONLY to this question.*P2/);
+  assert.doesNotMatch(quickSynthesisPrompt(submission, "es", []).system, /ONLY/);
   assert.equal(quickSynthesisSchema.safeParse({ majority: true, synthesis: "Texto" }).success, true);
   assert.equal(quickSynthesisSchema.safeParse({ majority: true, synthesis: "Texto", verdict: "falso" }).success, false);
 });

@@ -39,3 +39,8 @@ test("missing image tokens remain unknown while explicit zeros remain zero", () 
   assert.equal(totals.find((row) => row.role === "imagine")!.inputTokens, null);
   assert.equal(totals.find((row) => row.role === "translator")!.inputTokens, 0);
 });
+
+test("the classifier's model steps are counted as the classifier, not as an analyst", () => {
+  const step = (id: string, seat: string) => ({ kind: "model_step", id, seat, modelId: "openai/gpt-6.1-terra", effort: "medium", data: { usage: { inputTokens: 10, outputTokens: 2 } } });
+  assert.deepEqual(usageCalls([step("a", "classifier"), step("b", "judge"), step("c", "grok")]).map((call) => call.role), ["classifier", "moderator", "analyst"]);
+});

@@ -522,25 +522,48 @@ test("quick content chips distinguish absent votes from recorded no corresponde 
   assert.equal(empty.querySelector("figure details"), null);
 });
 
-test("questions show the answers' synthesis, majority or not, and no verdict or vote anywhere", () => {
-  const question: CaseRecord = { ...c, submission: { kind: "text", text: "¿Cuántos habitantes tiene la Argentina?", check: "quick" } };
-  for (const majority of [true, false]) {
-    const input: CourtEvent[] = [
-      { type: "content_classified", kind: "questions" },
-      ...COUNSEL.map((by): CourtEvent => ({ type: "quick_response", by, text: "Respuesta de " + by, sources: [] })),
-      { type: "answer_synthesis", text: "Síntesis de las respuestas del panel.", majority },
-      { type: "session_closed" },
-    ];
-    const { document } = parseHTML(render(input, question));
-    assert.equal(document.querySelector("figure figcaption")?.textContent, "Consulta");
-    assert.equal(document.querySelector('[aria-label="Votos de los analistas sobre el contenido"]'), null);
-    assert.equal(document.querySelector("#case-claims-title"), null);
-    const summary = document.querySelector('[aria-labelledby="case-summary-title"]')!;
-    assert.equal(summary.querySelector("h2")?.textContent, "Síntesis del panel");
-    assert.match(summary.textContent, /Síntesis de las respuestas del panel\./);
-    assert.match(summary.textContent, majority ? /Opinión mayoritaria/ : /Sin mayoría: posiciones/);
-    assert.match(summary.textContent, /Las preguntas no se califican/);
-    assert.doesNotMatch(document.toString(), /Verdadero|Falso|Insostenible|Engañoso|Desempate/);
-    assert.match(document.toString(), />Consulta</, "the panel names a question as such");
-  }
+test("each question shows its synthesis, majority or not, and no verdict or vote anywhere", () => {
+  const question: CaseRecord = { ...c, submission: { kind: "text", text: "¿Cuántos habitantes tiene la Argentina? ¿Y Uruguay?", check: "quick" } };
+  const input: CourtEvent[] = [
+    { type: "content_classified", kind: "question", items: [{ id: "P1", quote: "", text: "¿Cuántos habitantes tiene la Argentina?" }, { id: "P2", quote: "", text: "¿Cuántos habitantes tiene Uruguay?" }] },
+    ...COUNSEL.map((by): CourtEvent => ({ type: "quick_response", by, text: "Respuesta de " + by, sources: [] })),
+    { type: "answer_synthesis", questionId: "P1", text: "La mayoría responde 46 millones.", majority: true },
+    { type: "answer_synthesis", questionId: "P2", text: "Los analistas dan cifras distintas.", majority: false },
+    { type: "session_closed" },
+  ];
+  const { document } = parseHTML(render(input, question));
+  assert.equal(document.querySelector("figure figcaption")?.textContent, "Consulta");
+  assert.equal(document.querySelector('[aria-label="Votos de los analistas sobre el contenido"]'), null);
+  assert.equal(document.querySelector("#case-claims-title"), null);
+  const summary = document.querySelector('[aria-labelledby="case-summary-title"]')!;
+  assert.equal(summary.querySelector("h2")?.textContent, "Síntesis del panel");
+  assert.match(summary.textContent, /Las preguntas no se califican/);
+  const items = [...summary.querySelectorAll("article")];
+  assert.deepEqual(items.map((a) => a.id), ["P1", "P2"]);
+  assert.match(items[0]!.textContent, /¿Cuántos habitantes tiene la Argentina\?.*Opinión mayoritaria.*La mayoría responde 46 millones\./s);
+  assert.match(items[1]!.textContent, /¿Cuántos habitantes tiene Uruguay\?.*Sin mayoría: posiciones.*Los analistas dan cifras distintas\./s);
+  assert.doesNotMatch(document.toString(), /Verdadero|Falso|Insostenible|Engañoso|Desempate/);
+  assert.match(document.toString(), />Consulta</, "the panel names a question as such");
+});
+
+test("questions without items show one synthesis of the whole material", () => {
+  const question: CaseRecord = { ...c, submission: { kind: "text", text: "¿Qué pasa?", check: "quick" } };
+  const input: CourtEvent[] = [
+    { type: "content_classified", kind: "question", items: [] },
+    { type: "answer_synthesis", text: "Síntesis del material completo.", majority: false },
+  ];
+  const summary = parseHTML(render(input, question)).document.querySelector('[aria-labelledby="case-summary-title"]')!;
+  assert.equal(summary.querySelectorAll("article").length, 0);
+  assert.match(summary.textContent, /Sin mayoría: posiciones.*Síntesis del material completo\./s);
+});
+
+test("assertion items are the claims of the case: each one is rated, then the whole", () => {
+  const assertions: CourtEvent[] = [
+    { type: "content_classified", kind: "assertion", items: [{ id: "A1", quote: "Primera afirmación", text: "Primera afirmación examinada" }, { id: "A2", quote: "Segunda afirmación", text: "Segunda afirmación examinada" }] },
+    ...events.slice(1),
+  ];
+  const { document } = parseHTML(render(assertions, { ...c, submission: { ...c.submission, check: "quick" } }));
+  assert.equal(document.querySelector("#case-claims-title")?.textContent, "Afirmaciones");
+  assert.deepEqual([...document.querySelectorAll("[data-claim]")].map((claim) => claim.id), ["A1", "A2"]);
+  assert.equal(document.querySelector("figure figcaption")?.textContent?.startsWith("Chequeo"), true);
 });
