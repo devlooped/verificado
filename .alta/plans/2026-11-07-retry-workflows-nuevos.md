@@ -9,7 +9,7 @@ summary: Diseñar workflows nuevos que registren evidencia durable y puedan paus
 
 ## Objetivo y alcance
 
-Solo los casos **creados desde el inicio bajo el nuevo contrato versionado de retry** podrán ofrecer esta opción. Los workflows existentes no son reintentables con este concepto: no se migran, reconstruyen ni importan sus avances, y no se supone que `AT-185-GA` pueda recuperarse. El plan anterior [continuación segura](2026-11-07-continuacion-segura.md) permanece bloqueado; este plan sustituye su dirección de recuperación histórica, no afirma que el trabajo parcial esté terminado.
+Solo los casos **creados desde el inicio bajo el nuevo contrato versionado de retry** podrán ofrecer esta opción. Los workflows existentes no son reintentables con este concepto: no se migran, reconstruyen ni importan sus avances, y no se supone que `AT-185-GA` pueda recuperarse. El plan anterior de continuación segura (recuperación histórica) se eliminó el 2026-11-09 por obsoleto; este plan lo sustituye y no afirma que su trabajo parcial esté terminado.
 
 Para un workflow nuevo, **Reintentar** reanuda el mismo run, sin borrar el expediente ni volver a ejecutar unidades completas. Los resultados, artefactos, cursores y operaciones se registran desde el principio. Ante evidencia ausente, corrupción o un efecto externo incierto, se conserva todo y se bloquea, sin repetir llamadas pagas silenciosamente. La opción no promete recuperar todo error ni facturación exactamente una vez.
 
