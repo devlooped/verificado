@@ -12,9 +12,9 @@ export const metadata: Metadata = {
 };
 
 const STEPS = [
-  { n: "I", title: "Clasificación", body: "Un modelo clasificador lee el material, distingue si trae afirmaciones para chequear o preguntas para responder y separa cada una, hasta cinco, sin investigarlas ni responderlas." },
+  { n: "I", title: "Clasificación", body: "Un modelo clasificador lee el material y separa hasta cinco afirmaciones para chequear o preguntas para responder, sin investigarlas ni responderlas." },
   { n: "II", title: "Respuestas", body: COUNSEL_NAMES + " investigan en paralelo, cada uno con las herramientas de búsqueda de su proveedor, y responden con sus palabras, sin debatir entre sí." },
-  { n: "III", title: "Afirmaciones", body: "Cada analista vota cada afirmación y el contenido completo: verdadero, falso, insostenible o engañoso. Si tres coinciden, hay mayoría. Si no, desempata el moderador." },
+  { n: "III", title: "Afirmaciones", body: "Cada analista vota cada afirmación y el contenido completo: verdadero, falso, insostenible o engañoso. Tres votos coincidentes dan el resultado; si no hay mayoría y hay al menos tres votos, desempata el moderador." },
   { n: "IV", title: "Preguntas", body: "No se califican. Para cada pregunta, el moderador sintetiza la opinión mayoritaria de los analistas o, si no hay mayoría, sus distintas posiciones." },
 ];
 
@@ -31,17 +31,17 @@ export default function MethodPage() {
       <header className="reveal pt-10">
         <p className="font-mono text-xs uppercase tracking-widest text-ink-soft">Método</p>
         <h1 className="mt-2 max-w-3xl font-display text-5xl leading-[1.02] sm:text-6xl">
-          ¿Es cierto lo que leíste? <em className="text-celeste-deep">Que lo chequeen.</em>
+          ¿Afirma algo o pregunta algo? <em className="text-celeste-deep">Que lo evalúe el panel.</em>
         </h1>
         <p className="mt-4 max-w-3xl font-display text-2xl leading-snug text-ink-soft sm:text-3xl">
           Un clasificador, cuatro analistas, un moderador, cero opiniones humanas.
         </p>
         <p className="mt-5 max-w-2xl text-lg leading-relaxed text-ink-soft">
-          Presentá un texto, un enlace o una imagen. Si trae afirmaciones, el panel las chequea y las vota; si trae preguntas, las responde y el moderador sintetiza sus respuestas. Nadie edita, nadie opina, todo queda en el registro público.
+          Presentá un texto, un enlace o una imagen. Un clasificador decide qué hace el panel: si el material trae afirmaciones, las chequea y las vota; si trae preguntas, las responde y el moderador sintetiza las respuestas. Nadie edita, nadie opina, todo queda en el registro público.
         </p>
         <p className="mt-6">
           <button type="button" popoverTarget={REQUEST_PANEL_ID} className="btn-primary">
-            Pedir un chequeo
+            Pedir evaluación
           </button>
         </p>
         <div className="mt-6 flex flex-wrap items-center gap-3">
@@ -69,6 +69,43 @@ export default function MethodPage() {
         </div>
       </section>
 
+      <section id="afirmaciones-y-preguntas" className="mt-12 scroll-mt-6">
+        <h2 className="font-display text-3xl">Afirmaciones y preguntas</h2>
+        <p className="mt-3 max-w-3xl text-sm leading-relaxed text-ink-soft">
+          El clasificador trata cada parte del material según lo que contiene. Si el material mezcla ambas cosas, el panel sigue lo que le pide principalmente.
+        </p>
+        <div className="mt-6 grid gap-8 sm:grid-cols-2">
+          <div>
+            <h3 className="font-display text-2xl">Si trae afirmaciones</h3>
+            <p className="mt-2 text-sm leading-relaxed text-ink-soft">
+              Una noticia, un posteo, una declaración, o un pedido de verificar algo (“¿es cierto que…?”).
+            </p>
+            <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-relaxed text-ink-soft">
+              <li>Cada analista investiga y responde sobre cada afirmación y sobre el conjunto.</li>
+              <li>Luego vota cada afirmación y el contenido completo, por separado.</li>
+              <li>Tres votos coincidentes dan el resultado. El moderador resume los fundamentos de las mayorías, sin investigar ni cambiarlo.</li>
+              <li>Sin mayoría, con al menos tres votos, desempata el moderador. Con menos de tres votos, no hay resultado.</li>
+              <li>Si el material solo trae opiniones, se vota solo el contenido completo.</li>
+            </ul>
+          </div>
+          <div>
+            <h3 className="font-display text-2xl">Si trae preguntas</h3>
+            <p className="mt-2 text-sm leading-relaxed text-ink-soft">
+              Preguntas que el material le hace al panel, sin afirmar hechos que haya que chequear.
+            </p>
+            <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-relaxed text-ink-soft">
+              <li>Cada analista responde todas las preguntas con su propia búsqueda, y da sus razones y fuentes.</li>
+              <li>Para cada pregunta, el moderador sintetiza las respuestas sin investigar ni agregar datos propios: la opinión mayoritaria si tres analistas coinciden, o las distintas posiciones y quién las sostiene.</li>
+              <li>Las preguntas no se votan ni se califican, ni una por una ni en conjunto.</li>
+              <li>Con menos de tres respuestas, no hay síntesis.</li>
+            </ul>
+          </div>
+        </div>
+        <p className="mt-6 max-w-3xl text-sm leading-relaxed text-ink-soft">
+          Si el clasificador no logra separar los ítems, el material se chequea como un todo. No hay crítica de fuentes ni debate, y las páginas que cita cada respuesta son las de su proveedor, no fuentes revisadas por el panel.
+        </p>
+      </section>
+
       <section id="resultados" className="mt-12 scroll-mt-6">
         <h2 className="font-display text-3xl">Los cuatro resultados posibles</h2>
         <dl className="mt-5 grid gap-x-8 gap-y-5 sm:grid-cols-2">
@@ -91,16 +128,6 @@ export default function MethodPage() {
           </span>
         </p>
         <p className="mt-4 text-sm text-ink-soft">Estos resultados son solo para afirmaciones: las preguntas no reciben ninguno.</p>
-      </section>
-
-      <section id="afirmaciones-y-preguntas" className="mt-12 scroll-mt-6">
-        <h2 className="font-display text-3xl">Afirmaciones y preguntas</h2>
-        <p className="mt-3 max-w-3xl text-sm leading-relaxed text-ink-soft">
-          Antes de que los analistas empiecen, un modelo clasificador lee el material y separa cada afirmación o cada pregunta, hasta cinco. Si trae <strong className="text-ink">afirmaciones</strong>, como una noticia, un posteo o una declaración, o si pide verificar una (“¿es cierto que…?”), cada analista, en paralelo, busca con las herramientas de su proveedor y responde con sus palabras sobre esas afirmaciones y el conjunto, y luego vota cada afirmación y el contenido completo por separado. Para cada resultado, tres votos coincidentes deciden y el moderador resume brevemente los fundamentos de las mayorías, sin investigar ni cambiar la calificación; si hay al menos tres votos sin mayoría, desempata con el contenido, las respuestas y los votos. Con menos de tres votos no hay resultado. Si el material solo trae opiniones, se vota solo el contenido completo. No hay crítica de fuentes ni debate, y las páginas que cita cada respuesta son las de su proveedor, no fuentes revisadas por el panel.
-        </p>
-        <p className="mt-3 max-w-3xl text-sm leading-relaxed text-ink-soft">
-          Si el material le hace al panel una o varias <strong className="text-ink">preguntas</strong>, cada analista las responde una por una con su propia búsqueda, y para cada pregunta el moderador redacta una síntesis de las respuestas, sin investigar ni agregar datos propios: si al menos tres analistas coinciden, sintetiza esa opinión mayoritaria; si no, sintetiza las distintas posiciones y quién sostiene cada una. Las preguntas no se votan ni se califican, ni una por una ni en conjunto. Con menos de tres respuestas no hay síntesis.
-        </p>
       </section>
 
       <section id="proceso" className="mt-14 scroll-mt-6">
