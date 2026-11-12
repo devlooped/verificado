@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { MockLanguageModelV4 } from "ai/test";
 import { MemoryArtifactStore } from "../evidence/artifacts.ts";
 import { createQuickMockModel } from "./mock.ts";
-import { courtMaxOutputTokens, courtModel } from "./models.ts";
+import { courtMaxOutputTokens, courtModel, DEFAULT_MODELS } from "./models.ts";
 import { quickAnswer, quickClassify, quickIdentifyClaims, quickSummarize, quickSynthesize, quickTiebreak, quickVote, type QuickPlayDependencies, type QuickStep } from "./quick-play.ts";
 import { failed, holdQuickSession } from "./quick.ts";
 import { COUNSEL, project, type RecordedEvent, type Submission } from "../domain/court.ts";
@@ -201,7 +201,8 @@ test("the classifier, the answers to questions and their syntheses write their r
   const artifacts = new MemoryArtifactStore();
   const audit: Array<{ id: string; body: Record<string, unknown> }> = [];
   const question: Submission = { kind: "text", text: "¿Cuántos habitantes tiene la Argentina?", check: "quick" };
-  const classifier = courtModel("openai/gpt-6.1-terra", "medium");
+  const classifier = DEFAULT_MODELS.classifier;
+  assert.equal(classifier.id, "anthropic/claude-sonnet-5.5", "the classifier defaults to Sonnet");
   const classified = await quickClassify(CASE, question, "es", classifier, 0, deps("classify", artifacts, audit), "2026-11-11");
   assert.ok(!failed(classified));
   assert.equal(classified.kind, "question");
@@ -221,7 +222,7 @@ test("the classifier, the answers to questions and their syntheses write their r
   const files = await artifacts.read(CASE);
   const read = (path: string) => JSON.parse(new TextDecoder().decode(files.get(path)));
   const classifyRequest = read("quick/classifier/classify-0/request.json");
-  assert.equal(classifyRequest.modelId, "openai/gpt-6.1-terra");
+  assert.equal(classifyRequest.modelId, "anthropic/claude-sonnet-5.5");
   assert.match(JSON.stringify(classifyRequest.messages), /MATERIAL: ¿Cuántos/);
   assert.deepEqual(classifyRequest.output.properties.kind.enum, ["assertion", "question"]);
   assert.ok(classifyRequest.output.properties.items);
