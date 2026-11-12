@@ -2,7 +2,7 @@ export function BetaNotice({ signedIn }: { signedIn: boolean }) {
   return (
     <div>
       <p className="mt-5 leading-relaxed text-ink-soft">
-        Che.bot está en beta. Para pedir un chequeo, enviá un correo a{" "}
+        Che.bot está en beta. Para pedir una evaluación, enviá un correo a{" "}
         <a href="mailto:hola@che.bot" className="font-medium text-celeste-deep underline">hola@che.bot</a>.
       </p>
       {signedIn ? (

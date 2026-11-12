@@ -301,13 +301,13 @@ export async function holdQuickSession(bench: QuickBench): Promise<void> {
   // Before the classification: the moderator's optional claim identification.
   let claims: Claim[] = [];
   if (bench.submission.identifyClaims) {
-    if (!bench.identify) throw new Error("Falta la identificación de afirmaciones del chequeo rápido.");
+    if (!bench.identify) throw new Error("Falta la identificación de afirmaciones de la evaluación rápida.");
     let identified: QuickClaims | undefined;
     for (let attempt = 0; attempt < MAX_ATTEMPTS && !identified; attempt++) {
       const result = await bench.identify(attempt);
       if (!failed(result)) identified = result;
     }
-    if (!identified) throw new Error("El moderador no identificó las afirmaciones del chequeo rápido.");
+    if (!identified) throw new Error("El moderador no identificó las afirmaciones de la evaluación rápida.");
     claims = identified.claims;
     note({ type: "claims_entered", claims }, identified.at);
     await flush();
@@ -379,11 +379,11 @@ export async function holdQuickSession(bench: QuickBench): Promise<void> {
           const result = await bench.tiebreak(entries, attempt, claim);
           if (!failed(result) && result.reasoning.trim()) decision = result;
         }
-        if (!decision) throw new Error("El moderador no desempató el chequeo rápido" + (claim ? " para " + claim.id : "") + ".");
+        if (!decision) throw new Error("El moderador no desempató la evaluación rápida" + (claim ? " para " + claim.id : "") + ".");
         note({ ...judgment, verdict: decision.verdict, method: "judge", reasoning: decision.reasoning.trim() }, decision.at);
       } else {
         const reasons = votes.filter(({ vote }) => !vote).map(({ by, errors }) => MODEL_NAME[by] + ": " + (errors.at(-1) ?? "sin respuesta"));
-        throw new Error("Menos de tres analistas votaron; el chequeo rápido no tiene resultado" + (claim ? " para " + claim.id : "") + " (" + reasons.join("; ") + ").");
+        throw new Error("Menos de tres analistas votaron; la evaluación rápida no tiene resultado" + (claim ? " para " + claim.id : "") + " (" + reasons.join("; ") + ").");
       }
     };
     for (const claim of claims) {
@@ -397,7 +397,7 @@ export async function holdQuickSession(bench: QuickBench): Promise<void> {
         const result = await bench.summarize(majorities, attempt);
         if (!failed(result) && result.text.trim()) summary = result;
       }
-      if (!summary) throw new Error("El moderador no resumió los votos mayoritarios del chequeo rápido.");
+      if (!summary) throw new Error("El moderador no resumió los votos mayoritarios de la evaluación rápida.");
       note({ type: "case_summary", text: summary.text.trim() }, summary.at);
     }
     note({ type: "session_closed" });

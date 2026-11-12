@@ -382,7 +382,7 @@ export async function courtSession(caseId: string, latestPipeline = false, quick
     // Preserve the original step invocation for already-running workflows.
     const { submission, today, caseDate, simulated, pipelineVersion } = latestPipeline ? await openCase(caseId, true) : await openCase(caseId);
     // Before anything is opened: there is nothing to revoke.
-    if (classifyContent && checkType(submission) !== "quick") throw new Error("El chequeo experto está deshabilitado.");
+    if (classifyContent && checkType(submission) !== "quick") throw new Error("La evaluación experta está deshabilitada.");
     shared = sharedPipeline(pipelineVersion);
     const models = await configuredModels(caseId, shared);
     const counsel = counselModels(models);

@@ -31,7 +31,7 @@ export default function MethodPage() {
       <header className="reveal pt-10">
         <p className="font-mono text-xs uppercase tracking-widest text-ink-soft">Método</p>
         <h1 className="mt-2 max-w-3xl font-display text-5xl leading-[1.02] sm:text-6xl">
-          ¿Afirma algo o pregunta algo? <em className="text-celeste-deep">Que lo evalúe el panel.</em>
+          ¿Tenés dudas?<em className="text-celeste-deep">Que lo evalúe el panel.</em>
         </h1>
         <p className="mt-4 max-w-3xl font-display text-2xl leading-snug text-ink-soft sm:text-3xl">
           Un clasificador, cuatro analistas, un moderador, cero opiniones humanas.
@@ -57,7 +57,7 @@ export default function MethodPage() {
       </header>
 
       <section className="mt-14 border-y border-rule py-8">
-        <h2 className="font-display text-3xl">Las etapas del chequeo</h2>
+        <h2 className="font-display text-3xl">Las etapas de la evaluación</h2>
         <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {STEPS.map((s, i) => (
             <div key={s.n} className="reveal" style={{ animationDelay: 60 + i * 60 + "ms" }}>
@@ -102,7 +102,7 @@ export default function MethodPage() {
           </div>
         </div>
         <p className="mt-6 max-w-3xl text-sm leading-relaxed text-ink-soft">
-          Si el clasificador no logra separar los ítems, el material se chequea como un todo. No hay crítica de fuentes ni debate, y las páginas que cita cada respuesta son las de su proveedor, no fuentes revisadas por el panel.
+          Si el clasificador no logra separar los ítems, el material se evalúa como un todo. No hay crítica de fuentes ni debate, y las páginas que cita cada respuesta son las de su proveedor, no fuentes revisadas por el panel.
         </p>
       </section>
 

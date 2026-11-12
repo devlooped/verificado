@@ -30,9 +30,9 @@ test("case requests require the verified authorized account before validating in
   ];
   for (const session of sessions) {
     const getSession = t.mock.method(auth0, "getSession", async () => session as Awaited<ReturnType<typeof auth0.getSession>>);
-    assert.deepEqual(await requestFactCheck({}, form), { error: "Che.bot está en beta. Para pedir un chequeo, enviá un correo a hola@che.bot." });
+    assert.deepEqual(await requestFactCheck({}, form), { error: "Che.bot está en beta. Para pedir una evaluación, enviá un correo a hola@che.bot." });
     form.set("text", "Una afirmación suficientemente larga para pedir un chequeo.");
-    assert.deepEqual(await requestFactCheck({}, form), { error: "Che.bot está en beta. Para pedir un chequeo, enviá un correo a hola@che.bot." });
+    assert.deepEqual(await requestFactCheck({}, form), { error: "Che.bot está en beta. Para pedir una evaluación, enviá un correo a hola@che.bot." });
     form.set("text", "short");
     getSession.mock.restore();
   }
@@ -147,7 +147,7 @@ test("case requests reject the disabled Expert check and unknown check types bef
   form.set("text", "Una afirmación suficientemente larga para pedir un chequeo.");
   for (const check of ["deep", "expert"]) {
     form.set("check", check);
-    assert.deepEqual(await requestFactCheck({}, form), { error: "El chequeo experto está deshabilitado." });
+    assert.deepEqual(await requestFactCheck({}, form), { error: "La evaluación experta está deshabilitada." });
   }
   assert.equal(query.mock.callCount(), 0);
 });

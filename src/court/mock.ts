@@ -125,7 +125,7 @@ function responses({ spec, record, submission, native }: MockTurn): Call[][] {
 // The material is classified as a question when its text has a question mark.
 export function createQuickMockModel(step: QuickStep) {
   const text = (asked: boolean) => step === "answer"
-    ? prefix + "Respuesta ficticia para probar el chequeo; no busqué ni verifiqué el material enviado.\nLas fuentes de esta simulación no existen."
+    ? prefix + "Respuesta ficticia para probar la evaluación; no busqué ni verifiqué el material enviado.\nLas fuentes de esta simulación no existen."
     : step === "summary"
     ? prefix + "La mayoría considera que el contenido no es verificable: esta simulación no realizó ninguna verificación real."
     : JSON.stringify(step === "classify"

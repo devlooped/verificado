@@ -11,10 +11,10 @@ test("the diagram shows the classification, the questions path without rating, a
   const region = document.querySelector('[role="region"]');
   const svg = region?.querySelector("svg.pele-flowchart");
   assert.ok(svg);
-  assert.equal(svg.querySelector("title")?.textContent, "El proceso de un chequeo");
+  assert.equal(svg.querySelector("title")?.textContent, "El proceso de una evaluación");
   assert.match(svg.querySelector("desc")?.textContent ?? "", /menos de tres votos o si falla el desempate no hay resultado/);
   assert.match(svg.querySelector("desc")?.textContent ?? "", /las preguntas no se califican/);
-  assert.match(region?.getAttribute("aria-label") ?? "", /chequeo/);
+  assert.match(region?.getAttribute("aria-label") ?? "", /evaluación/);
   assert.equal(region?.getAttribute("tabindex"), "0");
   for (const text of [
     "El clasificador lee el material",
@@ -56,5 +56,5 @@ test("the method page explains one check, after the four possible results, and n
   const process = sections.findIndex((section) => section.id === "proceso");
   assert.ok(results >= 0 && process > results);
   const diagrams = [...sections[process]!.querySelectorAll("svg.pele-flowchart")];
-  assert.deepEqual(diagrams.map((svg) => svg.querySelector("title")?.textContent), ["El proceso de un chequeo"]);
+  assert.deepEqual(diagrams.map((svg) => svg.querySelector("title")?.textContent), ["El proceso de una evaluación"]);
 });

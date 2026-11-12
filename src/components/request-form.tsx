@@ -167,7 +167,7 @@ export function RequestForm() {
 
       {/* Every kind stays mounted, so switching back keeps what was typed; the hidden ones are disabled and not sent. */}
       <fieldset hidden={kind !== "text"} disabled={kind !== "text"} className="mt-4">
-        <label htmlFor={ids.text} className={label}>Texto a chequear</label>
+        <label htmlFor={ids.text} className={label}>Texto a evaluar</label>
         <textarea
           id={ids.text}
           data-autofocus
@@ -181,7 +181,7 @@ export function RequestForm() {
           onKeyDown={submitShortcut}
           aria-invalid={invalid("text")}
           aria-describedby={describedBy("text", ids.textHint)}
-          placeholder="Pegá acá la noticia, el posteo o la declaración que querés que chequeemos, o la pregunta que querés que el panel responda."
+          placeholder="Pegá acá la noticia, el posteo o la declaración que querés que evaluemos, o la pregunta que querés que el panel responda."
           className={field}
         />
         <div className="mt-1.5 flex justify-between gap-3 text-xs text-ink-soft">
@@ -251,7 +251,7 @@ export function RequestForm() {
           disabled={pending}
           className="btn-primary"
         >
-          {pending ? "Enviando…" : "Pedir el chequeo"}
+          {pending ? "Enviando…" : "Pedir la evaluación"}
         </button>
       </div>
     </form>

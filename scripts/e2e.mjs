@@ -17,9 +17,9 @@ if (mode === "submit") {
   await page.goto(base);
   await page.waitForTimeout(1500);
   await page.screenshot({ path: out + "/home.png", fullPage: true });
-  await page.getByRole("button", { name: "Pedir el chequeo" }).waitFor();
+  await page.getByRole("button", { name: "Pedir la evaluación" }).waitFor();
   await page.locator("textarea[name=text]").fill(arg);
-  await page.getByRole("button", { name: "Pedir el chequeo" }).click();
+  await page.getByRole("button", { name: "Pedir la evaluación" }).click();
   await page.waitForURL(/\/c\//);
   const heading = await page.getByRole("heading", { level: 1 }).textContent();
   assert(heading === "El panel está analizando", "after submitting, the case page shows only 'El panel está analizando'");

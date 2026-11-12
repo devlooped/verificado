@@ -10,7 +10,7 @@ type RerunDependencies = {
   finish: (id: string, status: "failed", error: string) => Promise<void>;
 };
 
-export const EXPERT_DISABLED = "El chequeo experto está deshabilitado: este caso no se puede volver a ejecutar.";
+export const EXPERT_DISABLED = "La evaluación experta está deshabilitada: este caso no se puede volver a ejecutar.";
 
 export async function rerunCaseResponse(request: Request, id: string, user: CaseUser | null | undefined, deps: RerunDependencies): Promise<Response> {
   if (!user?.sub) return Response.json({ error: "Iniciá sesión." }, { status: 401 });

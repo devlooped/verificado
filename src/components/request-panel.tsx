@@ -38,8 +38,8 @@ export function RequestPanel() {
       <button
         type="button"
         popoverTarget={REQUEST_PANEL_ID}
-        aria-label="Pedir un chequeo"
-        title="Pedir un chequeo"
+        aria-label="Pedir una evaluación"
+        title="Pedir una evaluación"
         className={round + " border-celeste-deep bg-celeste-deep text-paper hover:border-ink hover:bg-ink hover:text-paper"}
       >
         <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
@@ -55,7 +55,7 @@ export function RequestPanel() {
         className="request-panel reveal fixed bottom-auto left-auto top-16 right-[max(1.25rem,calc((100vw-64rem)/2+1.25rem))] m-0 max-h-[calc(100dvh-5rem)] w-[min(34rem,calc(100vw-2.5rem))] overflow-y-auto rounded-sm border border-ink/80 bg-paper p-5 text-base normal-case tracking-normal text-ink shadow-[6px_6px_0_0_var(--color-ink)] backdrop:bg-black/15 sm:p-7"
       >
         <div className="flex items-center justify-between gap-4">
-          <h2 id={REQUEST_PANEL_ID + "-title"} className="font-display text-3xl leading-none">Pedí un chequeo</h2>
+          <h2 id={REQUEST_PANEL_ID + "-title"} className="font-display text-3xl leading-none">Pedí una evaluación</h2>
           <div className="flex items-center gap-3">
             <span className="hidden font-mono text-[11px] uppercase tracking-widest text-ink-soft sm:inline">Formulario Nº 1</span>
             <button

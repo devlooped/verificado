@@ -2,7 +2,7 @@ import { render } from "pele";
 
 // The source is fixed in the application, not supplied by visitors.
 export const PROCESS_DIAGRAM = `flowchart TD
-  accTitle: El proceso de un chequeo
+  accTitle: El proceso de una evaluación
   accDescr: Un modelo clasificador decide si el material trae afirmaciones o preguntas y separa cada una. Con preguntas, los cuatro analistas responden en paralelo y, si al menos tres respondieron, el moderador sintetiza para cada pregunta la opinión mayoritaria o, sin mayoría, las posiciones de los analistas; las preguntas no se califican. Con afirmaciones, los cuatro analistas investigan y votan en paralelo cada afirmación y el contenido completo. Para cada resultado, tres votos coincidentes deciden; el moderador resume sus fundamentos sin investigar. Con al menos tres votos sin mayoría, desempata sin investigar. Con menos de tres votos o si falla el desempate no hay resultado; tampoco si falla el resumen de las mayorías.
   A["Se presenta un texto, enlace o imagen"] --> Q{"El clasificador lee el material<br/>y separa hasta cinco ítems:<br/>¿afirmaciones o preguntas?"}
   Q -- Preguntas --> R["Los cuatro analistas investigan en paralelo<br/>y responden cada pregunta"]
@@ -41,7 +41,7 @@ export function ProcessDiagram() {
         className="process-diagram overflow-x-auto rounded-sm border border-rule bg-paper/70 p-4 sm:p-6"
         tabIndex={0}
         role="region"
-        aria-label="Diagrama del chequeo; desplazá horizontalmente para verlo completo"
+        aria-label="Diagrama de la evaluación; desplazá horizontalmente para verlo completo"
         dangerouslySetInnerHTML={{ __html: diagram.svg }}
       />
     </figure>

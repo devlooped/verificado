@@ -48,7 +48,7 @@ export async function requestFactCheck(_prev: RequestState, formData: FormData):
   const language = z.enum(["auto", "es", "en"], { error: "Elegí un idioma válido." }).default("auto").safeParse(formData.get("language") ?? undefined);
   if (!language.success) return { error: language.error.issues[0]?.message, field: "language" };
   // The Expert check is disabled: the form offers no type, and a request for another one is refused.
-  const check = z.literal("quick", { error: "El chequeo experto está deshabilitado." }).default("quick").safeParse(formData.get("check") ?? undefined);
+  const check = z.literal("quick", { error: "La evaluación experta está deshabilitada." }).default("quick").safeParse(formData.get("check") ?? undefined);
   if (!check.success) return { error: check.error.issues[0]?.message };
   const parsed = RequestForm.safeParse(Object.fromEntries(formData));
   if (!parsed.success) {
