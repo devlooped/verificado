@@ -59,3 +59,31 @@ test("PNG, JPEG, WebP and GIF covers render into the same stamped JPEG", async (
     assert.ok(pixel[0]! > 240 && pixel[1]! < 15 && pixel[2]! < 15, format + " cover is visible");
   }
 });
+
+test("rated questions show their answers on the cover, with the models that gave them", async () => {
+  const questions: CourtEvent[] = [
+    { type: "content_classified", kind: "question", items: [{ id: "P1", quote: "", text: "¿Bajó?" }, { id: "P2", quote: "", text: "¿Cuánto?" }] },
+    { type: "answer_vote", by: "grok", questionId: "P1", verdict: "enganoso", rationale: "" },
+    { type: "answer_vote", by: "gemini", questionId: "P1", verdict: "falso", rationale: "" },
+    { type: "answer_judgment", questionId: "P1", verdict: "enganoso", method: "judge", reasoning: "" },
+    { type: "answer_judgment", questionId: "P2", verdict: "enganoso", method: "consensus", reasoning: "" },
+  ];
+  const markup = renderToStaticMarkup(createElement(CaseCardImage, { c, view: project(questions) }));
+  assert.match(markup, /Respuestas: Depende/);
+  assert.match(markup, /title=\"Grok\"/);
+  assert.match(markup, />P2</);
+  assert.doesNotMatch(markup, /title=\"Gemini\"|Engañoso/);
+  const response = new ImageResponse(createElement(CaseCardImage, { c, view: project(questions) }), { width: 720, height: 720 });
+  assert.equal((await sharp(await caseCardJpeg(await response.arrayBuffer())).metadata()).format, "jpeg");
+});
+
+test("a Dato answer shows on the cover with its own color", () => {
+  const markup = renderToStaticMarkup(createElement(CaseCardImage, { c, view: project([
+    { type: "content_classified", kind: "question", items: [{ id: "P1", quote: "", text: "¿Cuánto mide?" }] },
+    { type: "answer_vote", by: "claude", questionId: "P1", verdict: "dato", rationale: "" },
+    { type: "answer_judgment", questionId: "P1", verdict: "dato", method: "consensus", reasoning: "" },
+  ]) }));
+  assert.match(markup, /Respuesta: Dato/);
+  assert.match(markup, /background-color:#3c5ea8/);
+  assert.match(markup, /title=\"Claude\"/);
+});

@@ -5,8 +5,9 @@ export const PROGRESS_STEPS = ["Instrucción", "Fuentes", "Crítica de fuentes",
 const LEGACY_PROGRESS_STEPS = ["Instrucción", "Crítica de fuentes", "Debate", "Resultado"] as const;
 // A Quick check: the classifier identifies the items, the analysts answer, then vote.
 export const QUICK_PROGRESS_STEPS = ["Clasificación", "Respuestas", "Resultado"] as const;
-// Questions: the analysts answer, then the moderator synthesizes; no result.
-export const QUESTIONS_PROGRESS_STEPS = ["Clasificación", "Respuestas", "Síntesis"] as const;
+// Questions: the analysts answer, then answer each question Sí, No, Depende
+// No sé or Dato (in runs that rate them), and the moderator synthesizes.
+export const QUESTIONS_PROGRESS_STEPS = ["Clasificación", "Respuestas", "Votos y síntesis"] as const;
 
 const STAGE_OF: Partial<Record<CourtEvent["type"], number>> = {
   source_collection_started: 1,
@@ -40,7 +41,7 @@ export function quickStage(events: readonly Pick<CourtEvent, "type">[]): number 
   return sessionStage(events) === 4 ? 2 : events.some((e) => e.type === "content_classified" || e.type === "claims_entered") ? 1 : 0;
 }
 
-// The answers are recorded together, then the moderator synthesizes them.
+// The answers are recorded together, then the analysts vote and the moderator synthesizes.
 export function questionsStage(events: readonly Pick<CourtEvent, "type">[]): number {
   return events.some((e) => e.type === "quick_response") ? 2 : 1;
 }
@@ -82,7 +83,7 @@ export function SessionProgress({ events, queued, check = "expert", collectionPr
         {queued
           ? "El caso está en espera; el panel lo toma en un momento."
           : questions
-            ? current === 2 ? "El moderador está sintetizando las respuestas." : "Los analistas están respondiendo las preguntas."
+            ? current === 2 ? "Los analistas votan sus respuestas y el moderador las sintetiza." : "Los analistas están respondiendo las preguntas."
           : quick
             ? current === 0 ? "El clasificador está identificando afirmaciones o preguntas." : current === 2 ? "Los analistas están votando." : "Los analistas están respondiendo."
           : collectionProgress && current === 1 && collection

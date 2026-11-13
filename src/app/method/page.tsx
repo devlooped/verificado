@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { VERDICT_LABEL } from "@/domain/case.ts";
-import { COUNSEL, COUNSEL_NAMES, MODEL_NAME, VERDICTS, type Verdict } from "@/domain/court.ts";
+import { ANSWER_LABEL, VERDICT_LABEL } from "@/domain/case.ts";
+import { COUNSEL, COUNSEL_NAMES, MODEL_NAME, VERDICTS, type Answer, type Verdict } from "@/domain/court.ts";
 import { GavelIcon, ModelMark, VERDICT_TEXT, VerdictGlyph } from "@/components/marks.tsx";
 import { REQUEST_PANEL_ID } from "@/lib/request-panel.ts";
 import { ProcessDiagram } from "./process-diagram.tsx";
@@ -15,7 +15,7 @@ const STEPS = [
   { n: "I", title: "Clasificación", body: "Un modelo clasificador lee el material y separa hasta cinco afirmaciones para chequear o preguntas para responder, sin investigarlas ni responderlas." },
   { n: "II", title: "Respuestas", body: COUNSEL_NAMES + " investigan en paralelo, cada uno con las herramientas de búsqueda de su proveedor, y responden con sus palabras, sin debatir entre sí." },
   { n: "III", title: "Afirmaciones", body: "Cada analista vota cada afirmación y el contenido completo: verdadero, falso, insostenible o engañoso. Tres votos coincidentes dan el resultado; si no hay mayoría y hay al menos tres votos, desempata el moderador." },
-  { n: "IV", title: "Preguntas", body: "No se califican. Para cada pregunta, el moderador sintetiza la opinión mayoritaria de los analistas o, si no hay mayoría, sus distintas posiciones." },
+  { n: "IV", title: "Preguntas", body: "Cada analista responde cada pregunta: sí, no, depende, no sé o un dato. Tres respuestas iguales dan la del panel; si no, desempata el moderador. Luego sintetiza la opinión mayoritaria o las distintas posiciones." },
 ];
 
 const VERDICT_MEANING: Record<Verdict, string> = {
@@ -23,6 +23,17 @@ const VERDICT_MEANING: Record<Verdict, string> = {
   falso: "La evidencia contradice el contenido o la afirmación.",
   no_verificable: "La evidencia no alcanza para sostenerla ni para refutarla.",
   enganoso: "Presenta datos parciales o fuera de contexto que inducen a una conclusión equivocada.",
+};
+
+// The answers to questions, in the order they are read: yes, no, it depends, not known, a fact.
+const ANSWERS = ["verdadero", "falso", "enganoso", "no_verificable", "dato"] as const satisfies readonly Answer[];
+
+const ANSWER_MEANING: Record<Answer, string> = {
+  verdadero: "La evidencia respalda responder que sí.",
+  falso: "La evidencia respalda responder que no.",
+  enganoso: "La respuesta depende de condiciones o de cómo se interprete, o el tema es debatible y no hay consenso.",
+  no_verificable: "La evidencia no alcanza para responderla, como cuando pide una opinión o un consejo que la evidencia no puede zanjar.",
+  dato: "La pregunta busca un dato o un hecho (una cifra, una fecha, un nombre) y la evidencia lo da, como en «¿cuánto mide el Aconcagua?».",
 };
 
 export default function MethodPage() {
@@ -37,7 +48,7 @@ export default function MethodPage() {
           Un clasificador, cuatro analistas, un moderador, cero opiniones humanas.
         </p>
         <p className="mt-5 max-w-2xl text-lg leading-relaxed text-ink-soft">
-          Presentá un texto, un enlace o una imagen. Un clasificador decide qué hace el panel: si el material trae afirmaciones, las chequea y las vota; si trae preguntas, las responde y el moderador sintetiza las respuestas. Nadie edita, nadie opina, todo queda en el registro público.
+          Presentá un texto, un enlace o una imagen. Un clasificador decide qué hace el panel: si el material trae afirmaciones, las chequea y las vota; si trae preguntas, las responde con sí, no, depende, no sé o un dato, y el moderador sintetiza las respuestas. Nadie edita, nadie opina, todo queda en el registro público.
         </p>
         <p className="mt-6">
           <button type="button" popoverTarget={REQUEST_PANEL_ID} className="btn-primary">
@@ -95,8 +106,9 @@ export default function MethodPage() {
             </p>
             <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-relaxed text-ink-soft">
               <li>Cada analista responde todas las preguntas con su propia búsqueda, y da sus razones y fuentes.</li>
+              <li>Luego responde cada pregunta con una de cinco opciones: sí, no, depende, no sé o dato, si la pregunta busca un dato o un hecho.</li>
+              <li>Tres respuestas iguales dan la respuesta del panel. Sin mayoría, con al menos tres respuestas, desempata el moderador.</li>
               <li>Para cada pregunta, el moderador sintetiza las respuestas sin investigar ni agregar datos propios: la opinión mayoritaria si tres analistas coinciden, o las distintas posiciones y quién las sostiene.</li>
-              <li>Las preguntas no se votan ni se califican, ni una por una ni en conjunto.</li>
               <li>Con menos de tres respuestas, no hay síntesis.</li>
             </ul>
           </div>
@@ -127,7 +139,24 @@ export default function MethodPage() {
             Si hay al menos tres votos pero no hay mayoría, el moderador desempata con el contenido, las respuestas y los votos. Su decisión lleva el sello de desempate; podés ver qué modelo moderó y leer los fundamentos.
           </span>
         </p>
-        <p className="mt-4 text-sm text-ink-soft">Estos resultados son solo para afirmaciones: las preguntas no reciben ninguno.</p>
+        <p className="mt-4 text-sm text-ink-soft">Estos resultados son para afirmaciones. Las preguntas tienen sus propias respuestas.</p>
+      </section>
+
+      <section id="respuestas" className="mt-12 scroll-mt-6">
+        <h2 className="font-display text-3xl">Las cinco respuestas posibles</h2>
+        <dl className="mt-5 grid gap-x-8 gap-y-5 sm:grid-cols-2">
+          {ANSWERS.map((v) => (
+            <div key={v} className="flex items-start gap-3">
+              <span className={"mt-1 grid size-8 shrink-0 place-items-center rounded-full border border-rule bg-paper/70 " + VERDICT_TEXT[v]}>
+                <VerdictGlyph verdict={v} className="size-4" />
+              </span>
+              <div>
+                <dt className={"font-display text-2xl leading-none " + VERDICT_TEXT[v]}>{ANSWER_LABEL[v]}</dt>
+                <dd className="mt-1 text-sm text-ink-soft">{ANSWER_MEANING[v]}</dd>
+              </div>
+            </div>
+          ))}
+        </dl>
       </section>
 
       <section id="proceso" className="mt-14 scroll-mt-6">

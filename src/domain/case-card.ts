@@ -9,6 +9,16 @@ export function caseCardVotes(view: Pick<CaseView, "claims">) {
   }] : []);
 }
 
+// The same for the answers to questions: Sí, No, Depende, No sé or Dato.
+export function caseCardAnswers(view: Pick<CaseView, "questions" | "answerVotes" | "answerJudgment">) {
+  const items = view.questions.length ? view.questions : [{ id: "P", votes: view.answerVotes, judgment: view.answerJudgment }];
+  return items.flatMap(({ id, votes, judgment }) => judgment ? [{
+    id,
+    verdict: judgment.verdict,
+    models: COUNSEL.filter((model) => votes[model]?.verdict === judgment.verdict),
+  }] : []);
+}
+
 export function caseCardImageUrl(id: string, coverVersion?: string): string {
   const path = `/c/${encodeURIComponent(id)}/card`;
   return coverVersion === undefined ? path : `${path}?v=${encodeURIComponent(coverVersion)}`;

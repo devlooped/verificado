@@ -82,16 +82,34 @@ without items and without that event; cases recorded before the classification
 are assertions too. The former option to identify independent claims is gone:
 every check has its items now.
 
-Questions are not checked and receive no rating at all, neither each question nor
-the whole: nobody votes. Each analyst answers `QUESTION: <content>` and the list
-of questions with its own search, like a Quick answer; a seat without an answer
-after two attempts is recorded as absent. With at least three answers, the
-moderator writes, for each question, a synthesis from the answers alone, without
-tools, recorded as `answer_synthesis` with its `questionId`: the majority's
-answer when at least three analysts substantially agree (`majority: true`),
-otherwise each position and who holds it (`majority: false`). Without identified
-questions, one synthesis covers the material. Fewer than three answers, or a
-synthesis that fails twice, fail the case.
+Questions are not checked as assertions. Each analyst answers `QUESTION: <content>`
+and the list of questions with its own search, like a Quick answer; a seat
+without an answer after two attempts is recorded as absent. With at least three
+answers, each analyst with an answer then gives it, for each question (for the
+material without identified questions), as one of five options, from its answer
+and without thinking, like a vote (`quickRatingSchema`): **Sí**, **No**,
+**Depende** (it depends on conditions or interpretation, or it is debated
+without consensus), **No sé** (the evidence is not enough), recorded with the
+codes of the verdicts (`verdadero`, `falso`, `enganoso`, `no_verificable`), or
+**Dato** (`dato`: the question asks for a fact or a figure, such as a number, a
+date or a name, and the evidence gives it), all in `ANSWERS` (`ANSWER_LABEL`).
+A question the evidence cannot settle, such as a request for an opinion or
+advice, is No sé. The votes are recorded together as `answer_vote`, a seat
+whose vote fails twice as absent from `answer_vote`. For each question, the
+option of at least three analysts is the panel's answer
+(`answer_judgment`, `consensus`); without it and with at least three votes, the
+moderator breaks the tie from the answers and votes, without tools (`judge`).
+Fewer than three votes, or a tie-break that fails twice, leave the question
+without an answer: the consultation goes on. Then the moderator writes, for each
+question, a synthesis from the answers alone, without tools, consistent with the
+panel's answer it is given, recorded as `answer_synthesis` with its
+`questionId`: the majority's answer when at least three analysts substantially
+agree (`majority: true`), otherwise each position and who holds it
+(`majority: false`). Without identified questions, one vote per analyst, one
+answer and one synthesis cover the material. Fewer than three answers, or a
+synthesis that fails twice, fail the case. Runs started before the answers were
+rated (the `rateAnswers` flag of `courtSession`) replay without votes, and their
+questions show only the synthesis.
 
 ### Quick check of assertions
 

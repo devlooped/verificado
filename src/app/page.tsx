@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { connection } from "next/server";
-import { submissionExcerpt, VERDICT_LABEL } from "@/domain/case.ts";
+import { answerLabel, submissionExcerpt, VERDICT_LABEL } from "@/domain/case.ts";
 import { caseCardImageUrl } from "@/domain/case-card.ts";
 import { checkType, COUNSEL, MODEL_NAME, project, seatModels, type CaseRecord, type ClaimView, type SeatModels } from "@/domain/court.ts";
-import { GavelIcon, VERDICT_TEXT, VoteChip } from "@/components/marks.tsx";
+import { GavelIcon, VERDICT_TEXT, VerdictDot, VoteChip } from "@/components/marks.tsx";
 import { voteId } from "@/components/case-result.tsx";
 import { auth0 } from "@/lib/auth0.ts";
 import { canDeleteCase } from "@/lib/case-access.ts";
@@ -121,6 +121,13 @@ async function CaseCard({ c, cover, index, admin }: { c: CaseRecord; cover?: str
                     <Link href={caseHref(c.id) + "#" + question.id} className="line-clamp-3 font-display text-lg leading-snug transition hover:text-celeste-deep">
                       {question.text}<CaseLinkStatus />
                     </Link>
+                    {question.judgment && (
+                      <p className={"mt-2 flex items-center justify-end gap-1.5 font-display text-xl leading-none " + VERDICT_TEXT[question.judgment.verdict]}>
+                        {question.judgment.method === "judge" && <span title="Desempate del moderador" className="text-seal"><GavelIcon className="size-4" /></span>}
+                        <VerdictDot verdict={question.judgment.verdict} />
+                        {answerLabel(question.judgment.verdict)}
+                      </p>
+                    )}
                   </li>
                 ))}
               </ol>

@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { COUNSEL, project, type Claim, type Counsel, type RecordedEvent, type Verdict } from "../domain/court.ts";
+import { COUNSEL, project, type Answer, type Claim, type Counsel, type RecordedEvent, type Verdict } from "../domain/court.ts";
 import { languageRule } from "../domain/language.ts";
-import { classifiedItems, holdQuickSession, QUICK_VOTE_REQUEST, quickClaimsPrompt, quickClaimsSchema, quickClassificationSchema, quickClassifyPrompt, quickPrompt, quickSummaryPrompt, quickSynthesisPrompt, quickSynthesisSchema, quickTiebreakPrompt, quickVoteMessages, type QuickAnswer, type QuickBench, type QuickClaims, type QuickClassification, type QuickDecision, type QuickEntry, type QuickFailure, type QuickMajority, type QuickResponse, type QuickSynthesis, type QuickVote } from "./quick.ts";
+import { classifiedItems, holdQuickSession, QUICK_VOTE_REQUEST, quickClaimsPrompt, quickClaimsSchema, quickClassificationSchema, quickClassifyPrompt, quickPrompt, quickRatingMessages, quickRatingSchema, quickRatingTiebreakPrompt, quickSummaryPrompt, quickSynthesisPrompt, quickSynthesisSchema, quickTiebreakPrompt, quickVoteMessages, type QuickAnswer, type QuickBench, type QuickClaims, type QuickClassification, type QuickDecision, type QuickEntry, type QuickFailure, type QuickMajority, type QuickRating, type QuickRatingDecision, type QuickRatingEntry, type QuickRatingResult, type QuickResponse, type QuickSynthesis, type QuickVote } from "./quick.ts";
 
 const MODELS = { judge: "spacexai/grok-4.7", counsel: { grok: "spacexai/grok-4.7", gemini: "google/gemini-4-argon", claude: "anthropic/claude-opus-5.5", chatgpt: "openai/gpt-6.1-sol" } };
 const AT = "2026-11-07T12:00:00.000Z";
@@ -441,7 +441,7 @@ test("the classification, the answers to questions and their syntheses have thei
   assert.match(String(answer.messages[1]?.content), /Questions identified:.*P1.*P2/s);
   assert.match(answer.system, /Answer each of them/);
   assert.match(answer.system, /separately, by its identifier/);
-  assert.match(answer.system, /Do not rate the questions/);
+  assert.match(answer.system, /yes, no, that it depends/);
   assert.doesNotMatch(JSON.stringify(answer), /FACT CHECK/);
   const synthesis = quickSynthesisPrompt(submission, "es", [{ by: "grok", answer: "Argentina." }, { by: "claude", answer: "La Argentina." }], undefined, undefined, QUESTIONS[1]);
   assert.match(synthesis.system, /at least three analysts/);
@@ -451,4 +451,121 @@ test("the classification, the answers to questions and their syntheses have thei
   assert.doesNotMatch(quickSynthesisPrompt(submission, "es", []).system, /ONLY/);
   assert.equal(quickSynthesisSchema.safeParse({ majority: true, synthesis: "Texto" }).success, true);
   assert.equal(quickSynthesisSchema.safeParse({ majority: true, synthesis: "Texto", verdict: "falso" }).success, false);
+});
+
+// A bench that also rates the answers to questions, as workflows started with rateAnswers do.
+function ratingBench(items: Claim[], ratings: Partial<Record<Counsel, Record<string, Array<QuickRating | QuickFailure>>>> = {}, decisions: Array<QuickRatingDecision | QuickFailure> = []) {
+  const made = classifyingBench([{ kind: "question", items, at: AT }]);
+  const rated: Array<{ by: Counsel; question?: string; attempt: number; retry?: QuickFailure }> = [];
+  const tiebreaks: Array<{ entries: QuickRatingEntry[]; question?: string }> = [];
+  const synthesized: Array<{ question?: string; rating?: QuickRatingResult }> = [];
+  const synthesize = made.bench.synthesize!;
+  made.bench.rate = async (by, answer, attempt, retry, question) => {
+    rated.push({ by, ...(question ? { question: question.id } : {}), attempt, ...(retry ? { retry } : {}) });
+    assert.equal(answer.text, "Respuesta de " + by);
+    return ratings[by]?.[question?.id ?? "-"]?.[attempt] ?? { verdict: "verdadero", rationale: "Fundamento suficiente de la respuesta.", at: AT };
+  };
+  let decided = 0;
+  made.bench.rateTiebreak = async (entries, attempt, question) => {
+    made.calls.push("rateTiebreak:" + (question?.id ?? "-") + ":" + attempt);
+    tiebreaks.push({ entries, ...(question ? { question: question.id } : {}) });
+    return decisions[decided++] ?? { verdict: "enganoso", reasoning: "Las respuestas dependen del indicador elegido.", at: AT };
+  };
+  made.bench.synthesize = async (responses, attempt, question, rating) => {
+    synthesized.push({ ...(question ? { question: question.id } : {}), ...(rating ? { rating } : {}) });
+    return synthesize(responses, attempt, question);
+  };
+  return { ...made, rated, tiebreaks, synthesized };
+}
+const rating = (verdict: Answer): QuickRating => ({ verdict, rationale: "Fundamento suficiente de la respuesta.", at: AT });
+
+test("rated questions: each analyst answers each question Sí, No, Depende, No sé or Dato, and the majority is given to the synthesis", async () => {
+  const { bench, events, rated, synthesized, calls } = ratingBench(QUESTIONS);
+  await holdQuickSession(bench);
+  assert.deepEqual(events.map((e) => e.type), [
+    "session_opened", "content_classified", ...COUNSEL.map(() => "quick_response"),
+    ...COUNSEL.flatMap(() => ["answer_vote", "answer_vote"]),
+    "answer_judgment", "answer_synthesis", "answer_judgment", "answer_synthesis", "session_closed",
+  ]);
+  assert.deepEqual(events.map((e) => e.seq), events.map((_, i) => i + 1));
+  for (const by of COUNSEL) assert.deepEqual(rated.filter((r) => r.by === by).map((r) => r.question), ["P1", "P2"], "each analyst votes on the questions in order");
+  assert.ok(!calls.some((call) => call.startsWith("rateTiebreak") || call.startsWith("vote") || call.startsWith("tiebreak")));
+  assert.deepEqual(synthesized, [{ question: "P1", rating: { verdict: "verdadero", method: "consensus" } }, { question: "P2", rating: { verdict: "verdadero", method: "consensus" } }]);
+  const view = project(events);
+  assert.deepEqual(view.questions.map((q) => [q.id, q.judgment]), [["P1", { verdict: "verdadero", method: "consensus", reasoning: "" }], ["P2", { verdict: "verdadero", method: "consensus", reasoning: "" }]]);
+  assert.deepEqual(view.questions[0]!.votes.grok, { verdict: "verdadero", rationale: "Fundamento suficiente de la respuesta." });
+  assert.deepEqual(view.claims, []);
+  assert.equal(view.contentJudgment, undefined);
+});
+
+test("without a majority the moderator breaks the tie of a question from the answers and votes", async () => {
+  const { bench, events, tiebreaks, synthesized, calls } = ratingBench([QUESTIONS[0]!], {
+    grok: { P1: [rating("verdadero")] }, gemini: { P1: [rating("verdadero")] }, claude: { P1: [rating("falso")] }, chatgpt: { P1: [rating("no_verificable")] },
+  }, [{ error: "no object" }, { verdict: "enganoso", reasoning: "  Depende de cómo se mida.  ", at: AT }]);
+  await holdQuickSession(bench);
+  assert.deepEqual(calls.filter((call) => call.startsWith("rateTiebreak")), ["rateTiebreak:P1:0", "rateTiebreak:P1:1"]);
+  assert.deepEqual(tiebreaks[0]!.entries.map((e) => [e.by, e.answer, e.vote?.verdict]), COUNSEL.map((by, i) => [by, "Respuesta de " + by, ["verdadero", "verdadero", "falso", "no_verificable"][i]]));
+  const judgment = events.find((e) => e.type === "answer_judgment");
+  assert.deepEqual(judgment?.type === "answer_judgment" && [judgment.questionId, judgment.verdict, judgment.method, judgment.reasoning], ["P1", "enganoso", "judge", "Depende de cómo se mida."]);
+  assert.deepEqual(synthesized, [{ question: "P1", rating: { verdict: "enganoso", method: "judge" } }]);
+});
+
+test("three analysts who cannot settle the material answer No sé; a failed vote is retried, then recorded as an absence", async () => {
+  const failure = { error: "no object", text: "{}" };
+  const { bench, events, rated } = ratingBench([], {
+    grok: { "-": [rating("no_verificable")] }, gemini: { "-": [rating("no_verificable")] }, claude: { "-": [failure, { ...rating("no_verificable"), rationale: "corta" }] }, chatgpt: { "-": [rating("no_verificable")] },
+  });
+  await holdQuickSession(bench);
+  assert.deepEqual(rated.filter((r) => r.by === "claude").map((r) => [r.question, r.attempt, r.retry?.error]), [[undefined, 0, undefined], [undefined, 1, "no object"]]);
+  assert.deepEqual(events.filter((e) => e.type === "answer_vote").map((e) => e.type === "answer_vote" && [e.by, e.verdict, "questionId" in e]), [["grok", "no_verificable", false], ["gemini", "no_verificable", false], ["chatgpt", "no_verificable", false]]);
+  assert.deepEqual(events.filter((e) => e.type === "absence").map((e) => e.type === "absence" && [e.by, e.stage]), [["claude", "answer_vote"]]);
+  const view = project(events);
+  assert.deepEqual(view.answerJudgment, { verdict: "no_verificable", method: "consensus", reasoning: "" });
+  assert.deepEqual(Object.keys(view.answerVotes), ["grok", "gemini", "chatgpt"]);
+  assert.ok(events.some((e) => e.type === "answer_synthesis") && events.at(-1)?.type === "session_closed");
+});
+
+test("a question with fewer than three votes, or a failed tie-break, keeps its synthesis without an answer", async () => {
+  const failure = { error: "timeout" };
+  const few = ratingBench([QUESTIONS[0]!], { claude: { P1: [failure, failure] }, chatgpt: { P1: [failure, failure] } });
+  await holdQuickSession(few.bench);
+  assert.ok(!few.events.some((e) => e.type === "answer_judgment"));
+  assert.ok(!few.calls.some((call) => call.startsWith("rateTiebreak")));
+  assert.deepEqual(few.synthesized, [{ question: "P1" }]);
+  const split = ratingBench([QUESTIONS[0]!], { grok: { P1: [rating("falso")] }, gemini: { P1: [rating("falso")] } }, [{ error: "a" }, { error: "b" }]);
+  await holdQuickSession(split.bench);
+  assert.ok(!split.events.some((e) => e.type === "answer_judgment"));
+  assert.ok(split.events.some((e) => e.type === "answer_synthesis") && split.events.at(-1)?.type === "session_closed");
+});
+
+test("the vote on an answer and its tie-break have their own prompts, with five answers and no null", () => {
+  const submission = { kind: "text" as const, text: "¿Bajó la pobreza?", check: "quick" as const };
+  const prompt = quickPrompt(submission, "es", undefined, QUESTIONS, undefined, true);
+  const messages = quickRatingMessages(prompt.messages, "Respuesta", undefined, QUESTIONS[0]);
+  assert.match(String(messages.at(-1)?.content), /ONLY this question.*P1/s);
+  assert.match(String(quickRatingMessages(prompt.messages, "Respuesta", { error: "too short" }, QUESTIONS[1]).at(-1)?.content), /ONLY question P2/);
+  assert.equal(quickRatingSchema.safeParse({ verdict: null, rationale: "No es de sí o no." }).success, false);
+  assert.equal(quickRatingSchema.safeParse({ verdict: "enganoso", rationale: "Depende." }).success, true);
+  assert.equal(quickRatingSchema.safeParse({ verdict: "dato", rationale: "Mide 6961 metros." }).success, true);
+  assert.equal(quickRatingSchema.safeParse({ verdict: "quizas", rationale: "?" }).success, false);
+  assert.match(String(quickRatingSchema.shape.verdict.description), /verdadero \(Sí\).*falso \(No\).*enganoso \(Depende\).*no_verificable \(No sé\).*including a question that asks for an opinion, advice or a forecast.*dato \(Dato\) if the question asks for a fact or a figure/);
+  assert.doesNotMatch(String(quickRatingSchema.shape.verdict.description), /null|No corresponde/);
+  const tiebreak = quickRatingTiebreakPrompt(submission, "es", [{ by: "grok", answer: "Sí.", vote: { verdict: "verdadero", rationale: "r" } }, { by: "claude", answer: "No.", vote: { verdict: "no_verificable", rationale: "n" } }], undefined, QUESTIONS[0]);
+  assert.match(tiebreak.system, /yes, no, it depends, not known or a fact/);
+  assert.match(tiebreak.system, /ONLY for that question/);
+  assert.match(JSON.stringify(tiebreak.messages), /QUESTION: ¿Bajó.*## Grok\\nAnswer:\\nSí\.\\nVote: verdadero\. r.*Vote: no_verificable\. n.*ONLY for this question.*P1/);
+  const synthesis = quickSynthesisPrompt(submission, "es", [], undefined, undefined, QUESTIONS[0], { verdict: "no_verificable", method: "consensus" });
+  assert.match(JSON.stringify(synthesis.messages), /The panel's answer: not known, by the majority of the analysts\./);
+  assert.match(synthesis.system, /keep your synthesis consistent with it/);
+});
+
+test("Dato is an answer of its own: three analysts giving a fact make it the panel's answer, given to the synthesis", async () => {
+  const { bench, events, synthesized } = ratingBench([QUESTIONS[0]!], {
+    grok: { P1: [rating("dato")] }, gemini: { P1: [rating("dato")] }, claude: { P1: [rating("dato")] }, chatgpt: { P1: [rating("no_verificable")] },
+  });
+  await holdQuickSession(bench);
+  assert.deepEqual(project(events).questions[0]!.judgment, { verdict: "dato", method: "consensus", reasoning: "" });
+  assert.deepEqual(synthesized, [{ question: "P1", rating: { verdict: "dato", method: "consensus" } }]);
+  const synthesis = quickSynthesisPrompt({ kind: "text", text: "¿Cuántos?" }, "es", [], undefined, undefined, QUESTIONS[0], { verdict: "dato", method: "consensus" });
+  assert.match(JSON.stringify(synthesis.messages), /The panel's answer: a fact or a figure, the one the majority gives, by the majority of the analysts\./);
 });

@@ -8,7 +8,7 @@ import { mockInstructionArtifacts } from "../instruction/mock.ts";
 import { getImage, saveCaseAuditRecord } from "../store.ts";
 import { createQuickMockModel } from "./mock.ts";
 import { courtMaxOutputTokens, MOCK_MODEL_ID, modelEffort, withoutEffort, type CourtModel, type CourtOutputPhase } from "./models.ts";
-import { classifiedItems, quickClaimsPrompt, quickClaimsSchema, quickClassificationSchema, quickClassifyPrompt, quickPrompt, quickSummaryPrompt, quickSynthesisPrompt, quickSynthesisSchema, quickTiebreakPrompt, quickTiebreakSchema, quickVoteMessages, quickVoteSchema, type QuickAnswer, type QuickClaims, type QuickClassification, type QuickDecision, type QuickEntry, type QuickFailure, type QuickImage, type QuickMajority, type QuickResponse, type QuickSummary, type QuickSynthesis, type QuickVote } from "./quick.ts";
+import { classifiedItems, quickClaimsPrompt, quickClaimsSchema, quickClassificationSchema, quickClassifyPrompt, quickPrompt, quickRatingMessages, quickRatingSchema, quickRatingTiebreakPrompt, quickRatingTiebreakSchema, quickSummaryPrompt, quickSynthesisPrompt, quickSynthesisSchema, quickTiebreakPrompt, quickTiebreakSchema, quickVoteMessages, quickVoteSchema, type QuickAnswer, type QuickClaims, type QuickClassification, type QuickDecision, type QuickEntry, type QuickFailure, type QuickImage, type QuickMajority, type QuickRating, type QuickRatingDecision, type QuickRatingEntry, type QuickRatingResult, type QuickResponse, type QuickSummary, type QuickSynthesis, type QuickVote } from "./quick.ts";
 
 // The live calls of a Quick check, one per workflow step. Each writes its
 // request and result to the case artifacts and a model_step audit record, so
@@ -35,7 +35,7 @@ export function simulatedQuickDependencies(step: QuickStep): QuickPlayDependenci
 }
 
 type Seat = Counsel | "judge" | "classifier";
-export type QuickStep = "classify" | "claims" | "answer" | "vote" | "tiebreak" | "summary" | "synthesis";
+export type QuickStep = "classify" | "claims" | "answer" | "vote" | "tiebreak" | "summary" | "synthesis" | "rating" | "rating_tiebreak";
 type Stored = { at: string; error?: string; text?: string; messages?: ModelMessage[]; usage?: unknown; sources?: QuickSource[]; output?: unknown; finishReason?: string };
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error)).slice(0, 300);
@@ -229,10 +229,11 @@ export async function quickSummarize(caseId: string, language: string, model: Co
 
 // The moderator's synthesis of the answers to one question (to the whole
 // material when none was identified), without tools: the majority's answer, or
-// each position when there is none. No rating.
-export async function quickSynthesize(caseId: string, submission: Submission, language: string, model: CourtModel, responses: QuickResponse[], attempt: number, injected?: QuickPlayDependencies, date?: string, question?: Claim): Promise<QuickSynthesis | QuickFailure> {
+// each position when there is none, consistent with the panel's answer when
+// it is given. No rating of its own.
+export async function quickSynthesize(caseId: string, submission: Submission, language: string, model: CourtModel, responses: QuickResponse[], attempt: number, injected?: QuickPlayDependencies, date?: string, question?: Claim, rating?: QuickRatingResult): Promise<QuickSynthesis | QuickFailure> {
   const deps = injected ?? live;
-  const prompt = quickSynthesisPrompt(submission, language, responses, await image(caseId, submission, deps), date, question);
+  const prompt = quickSynthesisPrompt(submission, language, responses, await image(caseId, submission, deps), date, question, rating);
   const result = await generation(caseId, deps, {
     seat: "judge", step: "synthesis", attempt, sequence: (question ? 0 : 10) + attempt, model, claim: question,
     request: async () => ({ providerOptions: model.providerOptions, system: prompt.system, messages: withoutImages(prompt.messages), output: z.toJSONSchema(quickSynthesisSchema, { target: "draft-7" }) }),
@@ -250,4 +251,51 @@ export async function quickSynthesize(caseId: string, submission: Submission, la
   if (result.error) return { error: result.error };
   const output = quickSynthesisSchema.parse(result.output);
   return { text: output.synthesis, majority: output.majority, at: result.at };
+}
+
+// Questions: the analyst's answer to one question (to the whole material without
+// one) as an option, from its answer, without thinking, like a vote.
+export async function quickRate(caseId: string, submission: Submission, language: string, model: CourtModel, by: Counsel, answer: QuickAnswer, attempt: number, retry?: QuickFailure, injected?: QuickPlayDependencies, question?: Claim, date?: string): Promise<QuickRating | QuickFailure> {
+  const deps = injected ?? live;
+  const prompt = quickPrompt(submission, language, await image(caseId, submission, deps), [], date, true);
+  const messages = quickRatingMessages(prompt.messages, answer.text, retry, question);
+  const reasoning = { providerOptions: withoutEffort(model.providerOptions), reasoning: "none" as const };
+  const result = await generation(caseId, deps, {
+    seat: by, step: "rating", attempt, sequence: (question ? 0 : 2) + attempt, model, claim: question,
+    request: async () => ({ ...reasoning, system: prompt.system, messages: withoutImages(messages), output: z.toJSONSchema(quickRatingSchema, { target: "draft-7" }) }),
+    generate: async (maxOutputTokens) => {
+      try {
+        const generated = await generateText({ model: deps.model ?? gateway(model.id), ...reasoning, system: prompt.system, messages, output: Output.object({ schema: quickRatingSchema }),
+          maxOutputTokens, stopWhen: stepCountIs(1), maxRetries: 0, abortSignal: AbortSignal.timeout(QUICK_VOTE_MS) });
+        return { output: generated.output, text: generated.text, messages: generated.responseMessages, usage: generated.usage };
+      } catch (error) {
+        if (!NoObjectGeneratedError.isInstance(error)) throw error;
+        const cause = error.cause instanceof Error ? " " + error.cause.message : "";
+        return { error: (error.message + cause).slice(0, 300), text: error.text ?? "", usage: error.usage };
+      }
+    },
+  });
+  if (result.error) return { error: result.error, text: result.text ?? "" };
+  return { ...quickRatingSchema.parse(result.output), at: result.at, text: result.text ?? "" };
+}
+
+export async function quickRateTiebreak(caseId: string, submission: Submission, language: string, model: CourtModel, entries: QuickRatingEntry[], attempt: number, injected?: QuickPlayDependencies, question?: Claim, date?: string): Promise<QuickRatingDecision | QuickFailure> {
+  const deps = injected ?? live;
+  const prompt = quickRatingTiebreakPrompt(submission, language, entries, await image(caseId, submission, deps), question, date);
+  const result = await generation(caseId, deps, {
+    seat: "judge", step: "rating_tiebreak", attempt, sequence: (question ? 0 : 2) + attempt, model, claim: question,
+    request: async () => ({ providerOptions: model.providerOptions, system: prompt.system, messages: withoutImages(prompt.messages), output: z.toJSONSchema(quickRatingTiebreakSchema, { target: "draft-7" }) }),
+    generate: async (maxOutputTokens) => {
+      try {
+        const generated = await generateText({ model: deps.model ?? gateway(model.id), providerOptions: model.providerOptions, system: prompt.system, messages: prompt.messages,
+          output: Output.object({ schema: quickRatingTiebreakSchema }), maxOutputTokens, stopWhen: stepCountIs(1), maxRetries: 0, abortSignal: AbortSignal.timeout(QUICK_ANSWER_MS) });
+        return { output: generated.output, text: generated.text, messages: generated.responseMessages, usage: generated.usage };
+      } catch (error) {
+        if (!NoObjectGeneratedError.isInstance(error)) throw error;
+        return { error: error.message.slice(0, 300), text: error.text ?? "", usage: error.usage };
+      }
+    },
+  });
+  if (result.error) return { error: result.error };
+  return { ...quickRatingTiebreakSchema.parse(result.output), at: result.at };
 }

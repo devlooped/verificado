@@ -15,6 +15,7 @@
   --color-insostenible-text: #856700;
   --color-enganoso: #e98939;
   --color-enganoso-text: #b54a0b;
+  --color-dato: #3c5ea8;
   --color-verdict-glyph: #ffffff;
   --color-caution-glyph: #1b1915;
   --font-display: var(--font-instrument), "Times New Roman", serif;
@@ -43,6 +44,7 @@ html[data-theme="dark"] {
   --color-insostenible-text: #ead15b;
   --color-enganoso: #f49a50;
   --color-enganoso-text: #f49a50;
+  --color-dato: #8fa9e6;
   --color-verdict-glyph: #1b1915;
   color-scheme: dark;
 }

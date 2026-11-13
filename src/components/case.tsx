@@ -1,4 +1,4 @@
-import { ABSENCE_LABEL, describe, EVIDENCE_STANCE_LABEL, STAGE_LABEL, VERDICT_LABEL } from "@/domain/case.ts";
+import { ABSENCE_LABEL, answerLabel, describe, EVIDENCE_STANCE_LABEL, STAGE_LABEL, VERDICT_LABEL } from "@/domain/case.ts";
 import { canonicalUrl } from "@/instruction/proposed-urls.ts";
 import { COUNSEL, MODEL_NAME, modelDetail, modelMark, modelName, project, seatModels, type CaseView, type Counsel, type Evidence, type RecordedEvent, type Seat, type SeatModels, type SourceView, type Stage } from "@/domain/court.ts";
 import { FoldButtons, FoldNavigation } from "./case-folding.tsx";
@@ -153,7 +153,7 @@ function Entry({ e, ctx }: { e: RecordedEvent; ctx: Context }) {
           <span className="grid size-9 shrink-0 place-items-center rounded-full bg-seal text-paper"><GavelIcon className="size-4" /></span>
           <div>
             <p className="text-sm font-semibold">
-              {e.kind === "question" ? "El clasificador identifica preguntas para responder, sin calificación" : "El clasificador identifica afirmaciones para chequear"}
+              {e.kind === "question" ? "El clasificador identifica preguntas para responder" : "El clasificador identifica afirmaciones para chequear"}
               {!e.items.length && <span className="font-normal text-ink-soft"> · sin separarlas: se trata el material completo</span>}
             </p>
             {e.items.length > 0 && (
@@ -328,6 +328,32 @@ function Entry({ e, ctx }: { e: RecordedEvent; ctx: Context }) {
           <p className="mt-1 whitespace-pre-line text-ink-soft"><Cited text={e.text} ctx={ctx} /></p>
         </div>
       );
+    case "answer_vote":
+      return (
+        <div className="flex items-start gap-2 text-sm">
+          <ModelMark model={e.by} className="mt-0.5 size-4 shrink-0" />
+          <p>
+            <span className="font-semibold">{MODEL_NAME[e.by]}</span>
+            {" "}responde <span className={"font-semibold " + VERDICT_TEXT[e.verdict]}>{answerLabel(e.verdict)}</span>
+            {e.questionId && <> a <span className="font-mono">{e.questionId}</span></>}. <span className="text-ink-soft"><Cited text={e.rationale} ctx={ctx} /></span>
+          </p>
+        </div>
+      );
+    case "answer_judgment":
+      return e.method === "judge" ? (
+        <div className="flex items-start gap-4 rounded-sm border border-seal/40 bg-seal/5 p-4">
+          <JudgeSeal verdict={e.verdict} judge={ctx.models.judge} question />
+          <p className="text-sm">
+            <span className="font-semibold">Desempate del moderador{e.questionId && " sobre " + e.questionId}: </span>
+            <span className={"font-semibold " + VERDICT_TEXT[e.verdict]}>{answerLabel(e.verdict)}.</span> <span className="text-ink-soft"><Cited text={e.reasoning} ctx={ctx} /></span>
+          </p>
+        </div>
+      ) : (
+        <p className="flex flex-wrap items-center justify-center gap-2 text-sm">
+          <span className={VERDICT_TEXT[e.verdict]}><VerdictGlyph verdict={e.verdict} className="size-4" /></span>
+          <span>Respuesta del panel{e.questionId && <> a <span className="font-mono">{e.questionId}</span></>}: <span className={"font-semibold " + VERDICT_TEXT[e.verdict]}>{answerLabel(e.verdict)}</span>, por mayoría.</span>
+        </p>
+      );
     case "answer_synthesis":
       return (
         <div className="text-sm">
@@ -345,7 +371,7 @@ function Entry({ e, ctx }: { e: RecordedEvent; ctx: Context }) {
 // Entries that hang from a speaker above them sit indented under the speakers' column.
 const INDENTED = new Set<RecordedEvent["type"]>([
   "evidence_filed", "instruction_completed", "evidence_unified", "source_review_vote", "source_decided",
-  "objection", "objection_reply", "ruling", "vote", "content_vote", "case_summary", "answer_synthesis",
+  "objection", "objection_reply", "ruling", "vote", "content_vote", "case_summary", "answer_synthesis", "answer_vote",
 ]);
 
 type SectionKey = "apertura" | "respuestas" | "instruccion" | "recopilacion" | "fuentes" | Stage | "resultado";
@@ -388,7 +414,7 @@ function sectionsOf(events: readonly RecordedEvent[]): Section[] {
     else if ((e.type === "evidence_filed" || e.type === "instruction_completed") && key === "apertura") key = "instruccion";
     else if (e.type === "evidence_unified") key = "fuentes";
     else if (e.type === "floor_granted" || e.type === "statement") key = e.stage;
-    else if ((e.type === "vote" && key === "respuestas") || e.type === "judgment" || e.type === "content_vote" || e.type === "content_judgment" || e.type === "answer_synthesis" || e.type === "session_closed") key = "resultado";
+    else if ((e.type === "vote" && key === "respuestas") || e.type === "judgment" || e.type === "content_vote" || e.type === "content_judgment" || e.type === "answer_synthesis" || e.type === "answer_vote" || e.type === "answer_judgment" || e.type === "session_closed") key = "resultado";
     const last = sections.at(-1);
     if (last?.key === key) last.events.push(e);
     else sections.push({ key, events: [e] });
@@ -462,7 +488,7 @@ function summaryOf(section: Section, view: CaseView): string {
       return "Expediente común · " + plural(sources.length, "fuente", "fuentes") + " · " + plural(sources.filter((s) => s.excluded).length, "anulada", "anuladas");
     }
     case "resultado":
-      if (view.contentKind === "question") return plural(view.questions.filter((q) => q.synthesis).length + (view.synthesis ? 1 : 0), "síntesis del moderador", "síntesis del moderador");
+      if (view.contentKind === "question") return (count("answer_vote") ? plural(count("answer_vote"), "respuesta", "respuestas") + " Sí, No, Depende, No sé o Dato · " : "") + plural(view.questions.filter((q) => q.synthesis).length + (view.synthesis ? 1 : 0), "síntesis del moderador", "síntesis del moderador");
       if (Object.keys(view.responses).length) return (count("vote") ? plural(count("vote"), "voto", "votos") + " por afirmación · " : "") + plural(count("content_vote"), "voto", "votos") + " sobre el contenido completo";
       return plural(count("judgment"), "resultado", "resultados");
     default: {
@@ -608,6 +634,7 @@ function dialogueSpeaker(e: RecordedEvent): Seat | undefined {
       return "judge";
     case "judgment":
     case "content_judgment":
+    case "answer_judgment":
       return e.method === "judge" ? "judge" : undefined;
     case "evidence_filed":
       return e.evidence.by;
@@ -619,6 +646,7 @@ function dialogueSpeaker(e: RecordedEvent): Seat | undefined {
     case "objection_reply":
     case "vote":
     case "content_vote":
+    case "answer_vote":
       return e.by;
     default:
       return undefined;

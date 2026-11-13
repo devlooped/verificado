@@ -567,3 +567,61 @@ test("assertion items are the claims of the case: each one is rated, then the wh
   assert.deepEqual([...document.querySelectorAll("[data-claim]")].map((claim) => claim.id), ["A1", "A2"]);
   assert.equal(document.querySelector("figure figcaption")?.textContent?.startsWith("Chequeo"), true);
 });
+
+test("rated questions show the panel's answer Sí, No, Depende, No sé or Dato, each analyst's and the tie-break", () => {
+  const question: CaseRecord = { ...c, submission: { kind: "text", text: "¿Bajó la pobreza? ¿Cuánto mide el Aconcagua?", check: "quick" } };
+  const input: CourtEvent[] = [
+    { type: "content_classified", kind: "question", items: [{ id: "P1", quote: "", text: "¿Bajó la pobreza en 2026?" }, { id: "P2", quote: "", text: "¿Cuánto mide el Aconcagua?" }, { id: "P3", quote: "", text: "¿Conviene dolarizar?" }, { id: "P4", quote: "", text: "¿Qué me conviene estudiar?" }] },
+    ...COUNSEL.map((by): CourtEvent => ({ type: "quick_response", by, text: "Respuesta de " + by, sources: [] })),
+    ...COUNSEL.map((by, i): CourtEvent => ({ type: "answer_vote", by, questionId: "P1", verdict: i < 3 ? "verdadero" : "no_verificable", rationale: "Fundamento de " + by })),
+    ...COUNSEL.slice(0, 3).map((by): CourtEvent => ({ type: "answer_vote", by, questionId: "P2", verdict: "dato", rationale: "Mide 6961 metros." })),
+    ...COUNSEL.map((by): CourtEvent => ({ type: "answer_vote", by, questionId: "P4", verdict: "no_verificable", rationale: "Pide una opinión." })),
+    ...COUNSEL.map((by, i): CourtEvent => ({ type: "answer_vote", by, questionId: "P3", verdict: i % 2 ? "falso" : "enganoso", rationale: "Posición de " + by })),
+    { type: "answer_judgment", questionId: "P1", verdict: "verdadero", method: "consensus", reasoning: "" },
+    { type: "answer_synthesis", questionId: "P1", text: "La mayoría responde que sí.", majority: true },
+    { type: "answer_judgment", questionId: "P2", verdict: "dato", method: "consensus", reasoning: "" },
+    { type: "answer_synthesis", questionId: "P2", text: "Unos 6961 metros.", majority: true },
+    { type: "answer_judgment", questionId: "P3", verdict: "enganoso", method: "judge", reasoning: "Depende de los supuestos." },
+    { type: "answer_synthesis", questionId: "P3", text: "Posiciones divididas.", majority: false },
+    { type: "answer_judgment", questionId: "P4", verdict: "no_verificable", method: "consensus", reasoning: "" },
+    { type: "answer_synthesis", questionId: "P4", text: "Depende de cada uno.", majority: false },
+    { type: "session_closed" },
+  ];
+  const { document } = parseHTML(render(input, question));
+  const summary = document.querySelector('[aria-labelledby="case-summary-title"]')!;
+  assert.equal(summary.querySelector("h2")?.textContent, "Respuestas del panel");
+  assert.match(summary.textContent, /Sí, No, Depende, No sé o Dato/);
+  assert.doesNotMatch(summary.textContent, /no se califican/);
+  const [p1, p2, p3, p4] = [...summary.querySelectorAll("article")];
+  assert.match(p1!.textContent, /¿Bajó la pobreza en 2026\?.*Sí.*Mayoría · 3 de 4.*La mayoría responde que sí\./s);
+  assert.ok(p1!.querySelector('a[href="#voto-P1-grok"] [aria-label="Grok: Sí"]'));
+  assert.ok(p1!.querySelector('a[href="#voto-P1-chatgpt"][aria-label="Ver fundamento de ChatGPT: No sé"] [aria-label="ChatGPT (gpt-6.1-sol high): No sé"]'));
+  assert.match(p1!.querySelector("#voto-P1-chatgpt")!.textContent, /No sé\. Fundamento de chatgpt/);
+  assert.match(p2!.textContent, /Dato.*Mayoría · 3 de 4.*Unos 6961 metros\./s);
+  assert.ok(p2!.querySelector('a[href="#voto-P2-grok"] [aria-label="Grok: Dato"]'));
+  assert.ok(p2!.querySelector(".bg-dato"));
+  assert.ok(p2!.querySelector('[aria-label="ChatGPT (gpt-6.1-sol high): no votó"]'));
+  assert.match(p4!.textContent, /No sé.*Mayoría · 4 de 4.*Depende de cada uno\./s);
+  assert.doesNotMatch(summary.textContent, /No corresponde/);
+  assert.match(p2!.querySelector("#voto-P2-chatgpt")!.textContent, /no respondió/);
+  assert.match(p3!.textContent, /Depende.*Desempate del moderador/s);
+  assert.ok(p3!.querySelector('[aria-label="Desempate del moderador: Depende"]'));
+  assert.match(p3!.textContent, /Moderador: Depende de los supuestos\./);
+  assert.match(summary.textContent, /Resultado general.*Mixto/s);
+  assert.match(summary.textContent, /Cada círculo es una respuesta:\s*Sí\s*No\s*Depende\s*No sé\s*Dato/);
+  assert.doesNotMatch(document.toString(), /Verdadero|Falso|Insostenible|Engañoso/);
+});
+
+test("a rated question without items shows the answer to the whole material", () => {
+  const question: CaseRecord = { ...c, submission: { kind: "text", text: "¿Llueve mañana?", check: "quick" } };
+  const input: CourtEvent[] = [
+    { type: "content_classified", kind: "question", items: [] },
+    ...COUNSEL.map((by): CourtEvent => ({ type: "answer_vote", by, verdict: "falso", rationale: "Fundamento de " + by })),
+    { type: "answer_judgment", verdict: "falso", method: "consensus", reasoning: "" },
+    { type: "answer_synthesis", text: "Todos responden que no.", majority: true },
+  ];
+  const summary = parseHTML(render(input, question)).document.querySelector('[aria-labelledby="case-summary-title"]')!;
+  assert.match(summary.textContent, /No.*Mayoría · 4 de 4.*Todos responden que no\./s);
+  assert.ok(summary.querySelector('a[href="#voto-respuesta-grok"] [aria-label="Grok: No"]'));
+  assert.doesNotMatch(summary.textContent, /Resultado general/, "one answer needs no general result");
+});

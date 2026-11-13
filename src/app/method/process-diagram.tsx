@@ -3,15 +3,16 @@ import { render } from "pele";
 // The source is fixed in the application, not supplied by visitors.
 export const PROCESS_DIAGRAM = `flowchart TD
   accTitle: El proceso de una evaluación
-  accDescr: Un modelo clasificador decide si el material trae afirmaciones o preguntas y separa cada una. Con preguntas, los cuatro analistas responden en paralelo y, si al menos tres respondieron, el moderador sintetiza para cada pregunta la opinión mayoritaria o, sin mayoría, las posiciones de los analistas; las preguntas no se califican. Con afirmaciones, los cuatro analistas investigan y votan en paralelo cada afirmación y el contenido completo. Para cada resultado, tres votos coincidentes deciden; el moderador resume sus fundamentos sin investigar. Con al menos tres votos sin mayoría, desempata sin investigar. Con menos de tres votos o si falla el desempate no hay resultado; tampoco si falla el resumen de las mayorías.
+  accDescr: Un modelo clasificador decide si el material trae afirmaciones o preguntas y separa cada una. Con preguntas, los cuatro analistas responden en paralelo y, si al menos tres respondieron, cada uno responde cada pregunta Sí, No, Depende, No sé o Dato; tres respuestas iguales dan la del panel y, sin mayoría, desempata el moderador sin investigar. Luego el moderador sintetiza para cada pregunta la opinión mayoritaria o, sin mayoría, las posiciones de los analistas. Con afirmaciones, los cuatro analistas investigan y votan en paralelo cada afirmación y el contenido completo. Para cada resultado, tres votos coincidentes deciden; el moderador resume sus fundamentos sin investigar. Con al menos tres votos sin mayoría, desempata sin investigar. Con menos de tres votos o si falla el desempate no hay resultado; tampoco si falla el resumen de las mayorías.
   A["Se presenta un texto, enlace o imagen"] --> Q{"El clasificador lee el material<br/>y separa hasta cinco ítems:<br/>¿afirmaciones o preguntas?"}
   Q -- Preguntas --> R["Los cuatro analistas investigan en paralelo<br/>y responden cada pregunta"]
   R --> S{"¿Respondieron al menos 3?"}
   S -- No --> T["Sin síntesis"]
-  S -- Sí --> U{"Por cada pregunta:<br/>¿Hay una opinión mayoritaria?"}
-  U -- Sí --> V["El moderador sintetiza<br/>la opinión mayoritaria"]
-  U -- No --> W["El moderador sintetiza<br/>las posiciones de los analistas"]
-  V --> X["Sin calificación de las preguntas"]
+  S -- Sí --> Y["Cada analista responde cada pregunta:<br/>Sí, No, Depende, No sé o Dato"]
+  Y --> U{"Por cada pregunta:<br/>¿Hay 3 respuestas iguales?"}
+  U -- Sí --> V["Respuesta del panel por mayoría"]
+  U -- No --> W["El moderador desempata<br/>sin investigar"]
+  V --> X["El moderador sintetiza la opinión mayoritaria<br/>o las posiciones de los analistas"]
   W --> X
   Q -- Afirmaciones --> B["Los cuatro analistas investigan en paralelo<br/>con las herramientas de sus proveedores"]
   B --> C["Cada analista responde y vota<br/>cada afirmación y el contenido completo<br/>con fundamentos"]

@@ -59,7 +59,7 @@ test("a Quick check is classified first, then answered, and its votes advance to
   assert.equal(render([], true).querySelector('[aria-current="step"]'), null);
 });
 
-test("questions progress from the answers to the moderator's synthesis, without a result stage", () => {
+test("questions progress from the answers to their votes and the moderator's synthesis", () => {
   const classified: CourtEvent = { type: "content_classified", kind: "question", items: [{ id: "P1", quote: "", text: "¿Cuántos?" }] };
   const progress = (events: CourtEvent[]) => parseHTML(renderToStaticMarkup(createElement(SessionProgress, { events, queued: false, check: "quick" }))).document;
   const answering = progress([classified]);
@@ -67,7 +67,7 @@ test("questions progress from the answers to the moderator's synthesis, without 
   assert.match(answering.querySelector('[role="status"]')!.textContent, /Etapa 2 de 3: Respuestas/);
   assert.match(answering.toString(), /Los analistas están respondiendo las preguntas/);
   const synthesizing = progress([classified, { type: "quick_response", by: "grok", text: "Respuesta", sources: [] }]);
-  assert.match(synthesizing.querySelector('[role="status"]')!.textContent, /Etapa 3 de 3: Síntesis/);
-  assert.match(synthesizing.toString(), /El moderador está sintetizando las respuestas/);
-  assert.doesNotMatch(synthesizing.toString(), /Resultado|votando/);
+  assert.match(synthesizing.querySelector('[role="status"]')!.textContent, /Etapa 3 de 3: Votos y síntesis/);
+  assert.match(synthesizing.toString(), /Los analistas votan sus respuestas y el moderador las sintetiza/);
+  assert.doesNotMatch(synthesizing.toString(), /Resultado/);
 });

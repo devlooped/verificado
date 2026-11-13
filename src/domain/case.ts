@@ -1,4 +1,4 @@
-import { COUNSEL, MODEL_NAME, modelName, project, type CaseRecord, type CaseView, type CourtEvent, type Stage, type Submission, type Verdict } from "./court.ts";
+import { COUNSEL, MODEL_NAME, modelName, project, type Answer, type CaseRecord, type CaseView, type CourtEvent, type Stage, type Submission, type Verdict } from "./court.ts";
 
 export function submissionExcerpt(s: Submission): string {
   if (s.kind === "text") return s.text;
@@ -7,7 +7,7 @@ export function submissionExcerpt(s: Submission): string {
 }
 
 // What the panel did with the material: one kind of check, whatever court
-// recorded it, or questions answered without any rating.
+// recorded it, or questions answered by the panel.
 export function caseKindLabel(view: Pick<CaseView, "contentKind">): string {
   return view.contentKind === "question" ? "Consulta" : "Chequeo";
 }
@@ -25,6 +25,29 @@ export const VERDICT_LABEL: Record<Verdict, string> = {
   enganoso: "Engañoso",
 };
 
+// Questions are answered with the same four codes: Sí, No, Depende (it depends,
+// it is debated, there is no consensus) and No sé (the evidence is not enough);
+// and Dato, when the question asks for a fact or a figure the evidence gives.
+export const ANSWER_LABEL: Record<Answer, string> = {
+  verdadero: "Sí",
+  falso: "No",
+  no_verificable: "No sé",
+  enganoso: "Depende",
+  dato: "Dato",
+};
+
+export function answerLabel(verdict: Answer): string {
+  return ANSWER_LABEL[verdict];
+}
+
+export const ANSWER_THUMB: Record<Answer, string> = {
+  verdadero: "👍",
+  falso: "👎",
+  no_verificable: "❓",
+  enganoso: "🤔",
+  dato: "📊",
+};
+
 export const VERDICT_THUMB: Record<Verdict, string> = {
   verdadero: "👍",
   falso: "👎",
@@ -35,6 +58,15 @@ export const VERDICT_THUMB: Record<Verdict, string> = {
 // The case at a glance: one verdict when every judged claim agrees, "mixto" when they differ.
 export function caseOutcome(view: Pick<CaseView, "claims">): Verdict | "mixto" | undefined {
   const verdicts = new Set(view.claims.flatMap((c) => (c.judgment ? [c.judgment.verdict] : [])));
+  if (verdicts.size === 0) return undefined;
+  return verdicts.size === 1 ? [...verdicts][0] : "mixto";
+}
+
+// The answers to the questions at a glance: one when every rated question has
+// the same, "mixto" when they differ.
+export function answersOutcome(view: Pick<CaseView, "questions" | "answerJudgment">): Answer | "mixto" | undefined {
+  const judgments = view.questions.length ? view.questions.map((q) => q.judgment) : [view.answerJudgment];
+  const verdicts = new Set(judgments.flatMap((j) => (j ? [j.verdict] : [])));
   if (verdicts.size === 0) return undefined;
   return verdicts.size === 1 ? [...verdicts][0] : "mixto";
 }
@@ -55,14 +87,15 @@ export function caseShareMetadata(c: CaseRecord, events: readonly CourtEvent[] =
   const view = c.status === "resolved" ? project(events) : undefined;
   const claims = view?.claims.map((claim) => claim.text).filter(Boolean) ?? [];
   const quoted = `«${claims.length ? claims.join(" / ") : submissionExcerpt(c.submission)}»`;
-  const outcome = view && !view.dismissal ? contentOutcome(view)?.verdict ?? caseOutcome(view) : undefined;
-  const icon = outcome === "mixto" ? "⚖️" : outcome ? VERDICT_THUMB[outcome] : undefined;
+  const questions = view?.contentKind === "question";
+  const outcome = view && !view.dismissal ? questions ? answersOutcome(view) : contentOutcome(view)?.verdict ?? caseOutcome(view) : undefined;
+  const icon = outcome === "mixto" ? "⚖️" : outcome === undefined ? undefined : questions || outcome === "dato" ? ANSWER_THUMB[outcome] : VERDICT_THUMB[outcome];
   return icon
     ? { title: `${title} · ${icon}`, description: `${quoted} ${icon}` }
     : { title, description: quoted };
 }
 
-export const ABSENCE_LABEL = { ...STAGE_LABEL, discovery: "investigación", instruction: "instrucción", source_review: "crítica de fuentes", objection: "ronda de objeciones", content: "votación del contenido completo", answer: "respuesta" };
+export const ABSENCE_LABEL = { ...STAGE_LABEL, discovery: "investigación", instruction: "instrucción", source_review: "crítica de fuentes", objection: "ronda de objeciones", content: "votación del contenido completo", answer: "respuesta", answer_vote: "votación de las respuestas" };
 export const EVIDENCE_STANCE_LABEL = { supports: "a favor", opposes: "en contra", context: "contexto" };
 
 export function describe(e: CourtEvent): string {
@@ -72,7 +105,7 @@ export function describe(e: CourtEvent): string {
     case "claims_entered":
       return "El moderador fija las afirmaciones a examinar:\n" + e.claims.map((c) => "[" + c.id + "] " + c.text).join("\n");
     case "content_classified":
-      return "El clasificador identifica " + (e.kind === "question" ? "preguntas para responder, sin calificación" : "afirmaciones para chequear") + (e.items.length ? ":\n" + e.items.map((c) => "[" + c.id + "] " + c.text).join("\n") : ", sin separarlas: se trata el material completo.");
+      return "El clasificador identifica " + (e.kind === "question" ? "preguntas para responder" : "afirmaciones para chequear") + (e.items.length ? ":\n" + e.items.map((c) => "[" + c.id + "] " + c.text).join("\n") : ", sin separarlas: se trata el material completo.");
     case "dismissed":
       return "El moderador descarta el caso: " + e.reason;
     case "instruction_opened":
@@ -125,6 +158,10 @@ export function describe(e: CourtEvent): string {
       return "Resumen del moderador: " + e.text;
     case "answer_synthesis":
       return "Síntesis del moderador" + (e.questionId ? " sobre " + e.questionId : "") + " (" + (e.majority ? "opinión mayoritaria" : "sin mayoría: posiciones del panel") + "): " + e.text;
+    case "answer_vote":
+      return MODEL_NAME[e.by] + " responde " + ANSWER_LABEL[e.verdict] + (e.questionId ? " sobre " + e.questionId : "") + ": " + e.rationale;
+    case "answer_judgment":
+      return "Respuesta del panel" + (e.questionId ? " a " + e.questionId : "") + ": " + answerLabel(e.verdict) + (e.method === "consensus" ? " (por mayoría)." : " (desempate del moderador). " + e.reasoning);
     case "absence":
       return MODEL_NAME[e.by] + " no se pronunció en la " + ABSENCE_LABEL[e.stage] + ".";
     case "session_closed":

@@ -313,7 +313,8 @@ test("questions list the classification and the answers, an absent answer, and n
   const html = document.toString();
   assert.deepEqual([...document.querySelectorAll("summary h3")].map((h) => h.textContent), ["Apertura", "Respuestas", "Resultado"]);
   assert.match(html, /Empieza la consulta ·/);
-  assert.match(html, /El clasificador identifica preguntas para responder, sin calificación/);
+  assert.match(html, /El clasificador identifica preguntas para responder/);
+  assert.doesNotMatch(html, /sin calificación/);
   assert.match(html, /P1.*¿Cuántos habitantes tiene la Argentina\?/s);
   assert.match(html, /1 pregunta a responder/);
   assert.match(html, /1 síntesis del moderador/);
@@ -339,4 +340,28 @@ test("Quick individual votes are grouped with results, not with the researched a
   assert.doesNotMatch(answers.textContent!, /Fundamento individual/);
   assert.match(result.textContent!, /Fundamento individual/);
   assert.match(result.textContent!, /4 votos por afirmación · 4 votos sobre el contenido completo/);
+});
+
+test("the votes of rated questions and the panel's answers are listed with the result", () => {
+  const input: CourtEvent[] = [
+    { type: "session_opened", judgeModel: "anthropic/claude-opus-5.5", counselModels: { grok: "g", gemini: "m", claude: "c", chatgpt: "o" } },
+    { type: "content_classified", kind: "question", items: [{ id: "P1", quote: "", text: "¿Bajó la pobreza?" }, { id: "P2", quote: "", text: "¿Cuánto mide?" }] },
+    ...COUNSEL.map((by): CourtEvent => ({ type: "quick_response", by, text: "Respuesta de " + by, sources: [] })),
+    { type: "answer_vote", by: "grok", questionId: "P1", verdict: "enganoso", rationale: "Depende del indicador." },
+    { type: "answer_vote", by: "gemini", questionId: "P2", verdict: "no_verificable", rationale: "Pide una opinión." },
+    { type: "answer_vote", by: "chatgpt", questionId: "P2", verdict: "dato", rationale: "Mide 6961 metros." },
+    { type: "absence", by: "claude", stage: "answer_vote" },
+    { type: "answer_judgment", questionId: "P1", verdict: "verdadero", method: "consensus", reasoning: "" },
+    { type: "answer_judgment", questionId: "P2", verdict: "no_verificable", method: "judge", reasoning: "Nadie lo sabe." },
+    { type: "answer_synthesis", questionId: "P1", text: "Síntesis.", majority: true },
+    { type: "session_closed" },
+  ];
+  const html = parseHTML(render(input)).document.toString().replace(/<[^>]+>/g, "");
+  assert.match(html, /Grok responde Depende a P1\. Depende del indicador\./);
+  assert.match(html, /Gemini responde No sé a P2\. Pide una opinión\./);
+  assert.match(html, /ChatGPT responde Dato a P2\. Mide 6961 metros\./);
+  assert.match(html, /Claude no se pronunció en la votación de las respuestas/);
+  assert.match(html, /Respuesta del panel a P1: Sí, por mayoría\./);
+  assert.match(html, /Desempate del moderador sobre P2: No sé\. Nadie lo sabe\./);
+  assert.match(html, /3 respuestas Sí, No, Depende, No sé o Dato · 1 síntesis del moderador/);
 });

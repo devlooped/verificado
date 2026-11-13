@@ -1,5 +1,5 @@
-import { caseKindLabel, caseOutcome, contentOutcome, VERDICT_LABEL } from "@/domain/case.ts";
-import { checkType, COUNSEL, MODEL_NAME, seatModels, type AnswerSynthesis, type CaseRecord, type CaseView, type ClaimView, type RecordedEvent, type SeatModels } from "@/domain/court.ts";
+import { ANSWER_LABEL, answerLabel, answersOutcome, caseKindLabel, caseOutcome, contentOutcome, VERDICT_LABEL } from "@/domain/case.ts";
+import { checkType, COUNSEL, MODEL_NAME, seatModels, type AnswerJudgment, type AnswerSynthesis, type AnswerVotes, type CaseRecord, type CaseView, type ClaimView, type RecordedEvent, type SeatModels } from "@/domain/court.ts";
 import { caseDate, formatCaseDate } from "@/domain/case-date.ts";
 import { Cited, citationRefs, type Citations } from "./citations.tsx";
 import { ClaimsIcon, GavelIcon, JudgeSeal, MegaphoneIcon, VERDICT_TEXT, VerdictDot, VoteChip } from "./marks.tsx";
@@ -74,7 +74,7 @@ function Original({ c, view, models, citations, combined = false }: { c: CaseRec
   const claims = view.claims;
   const outcome = contentOutcome(view);
   const quick = checkType(s) === "quick";
-  // Questions are answered, not rated: no votes to show.
+  // Questions show their answers in the synthesis section, not here.
   const questions = view.contentKind === "question";
   return (
     <figure className={combined ? "min-w-0" : "min-w-0 rounded-sm border border-rule bg-paper/60 p-5"}>
@@ -188,8 +188,64 @@ function ClaimCard({ claim, models, citations, children }: { claim: ClaimView; m
   );
 }
 
-// The moderator's synthesis of the answers to one question: no rating, only
-// whether it gives the majority's opinion or each position.
+// The panel's answer to one question (to the whole material without one): Sí,
+// No, Depende, No sé or Dato, each analyst's, and their reasons. Questions recorded
+// before the answers were rated have none.
+function Answer({ id, votes, judgment, models, citations }: { id: string; votes: AnswerVotes; judgment?: AnswerJudgment; models: SeatModels; citations: Citations }) {
+  if (!judgment && !COUNSEL.some((c) => votes[c])) return null;
+  const agreeing = judgment ? COUNSEL.filter((c) => votes[c]?.verdict === judgment.verdict).length : 0;
+  return (
+    <div className="mt-3 grid gap-x-6 gap-y-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+      <div className="flex items-center gap-3">
+        {judgment ? (
+          <>
+            {judgment.method === "judge" ? <JudgeSeal verdict={judgment.verdict} judge={models.judge} question /> : <VerdictDot verdict={judgment.verdict} className="size-6" />}
+            <div>
+              <p className={"font-display text-2xl leading-none " + VERDICT_TEXT[judgment.verdict]}>{answerLabel(judgment.verdict)}</p>
+              <p className={"mt-1 text-[10px] " + (judgment.method === "judge" ? "text-seal" : "text-ink-soft")}>
+                {judgment.method === "judge" ? "Desempate del moderador" : "Mayoría · " + agreeing + " de " + COUNSEL.length}
+              </p>
+            </div>
+          </>
+        ) : <p className="text-sm text-ink-soft">Sin respuesta del panel</p>}
+      </div>
+      <div className="flex flex-wrap items-center gap-3 sm:justify-end" role="group" aria-label={"Respuestas de los analistas" + (id === WHOLE ? "" : " a " + id)}>
+        {COUNSEL.map((c) => votes[c] ? (
+          <a key={c} href={"#" + voteId(id, c)} aria-label={"Ver fundamento de " + MODEL_NAME[c] + ": " + answerLabel(votes[c].verdict)} className="rounded-full focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-celeste-deep">
+            <VoteChip model={c} verdict={votes[c].verdict} used={models[c]} question />
+          </a>
+        ) : <VoteChip key={c} model={c} used={models[c]} question />)}
+      </div>
+      <details id={reasonsId(id)} className="text-sm sm:col-span-2">
+        <summary className="w-fit cursor-pointer select-none text-xs text-celeste-deep hover:underline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-celeste-deep">Fundamentos de cada respuesta{id !== WHOLE && <span className="sr-only"> a {id}</span>}</summary>
+        <ul className="mt-3 space-y-3 rounded-sm bg-paper-deep/50 p-4">
+          {COUNSEL.map((c) => (
+            <li key={c} id={voteId(id, c)} tabIndex={-1} className="scroll-mt-24 target:rounded-sm target:bg-celeste/15">
+              <span className="font-semibold">{MODEL_NAME[c]}:</span>{" "}
+              {votes[c] ? (
+                <>
+                  <span className={"font-semibold " + VERDICT_TEXT[votes[c].verdict]}>{answerLabel(votes[c].verdict)}.</span>{" "}
+                  <span className="text-ink-soft"><Cited text={votes[c].rationale} ctx={citations} /></span>
+                </>
+              ) : <span className="text-ink-soft">no respondió.</span>}
+            </li>
+          ))}
+          {judgment?.method === "judge" && (
+            <li className="border-l-2 border-seal pl-3">
+              <span className="font-semibold text-seal">Moderador:</span> <span className="text-ink-soft"><Cited text={judgment.reasoning} ctx={citations} /></span>
+            </li>
+          )}
+        </ul>
+      </details>
+    </div>
+  );
+}
+
+// The anchor of the answer to the whole material, when no question was identified.
+const WHOLE = "respuesta";
+
+// The moderator's synthesis of the answers to one question: whether it gives
+// the majority's opinion or each position.
 function Synthesis({ synthesis, citations }: { synthesis?: AnswerSynthesis; citations: Citations }) {
   if (!synthesis) return <p className="mt-3 text-sm text-ink-soft">No hay síntesis del moderador registrada.</p>;
   return (
@@ -211,6 +267,9 @@ export function CaseResult({ c, view, events = [], models = seatModels(c, events
     ...(view.contentJudgment?.method === "judge" && view.contentJudgment.reasoning.trim()
       ? [{ label: view.claims.length ? "Contenido completo" : "", text: view.contentJudgment.reasoning }] : []),
   ] : [];
+  const questions = view.contentKind === "question";
+  const answers = questions ? answersOutcome(view) : undefined;
+  const rated = questions && (view.questions.some((q) => q.judgment || COUNSEL.some((c) => q.votes[c])) || view.answerJudgment !== undefined || COUNSEL.some((c) => view.answerVotes[c]));
   const combinedClaim = !view.dismissal && c.submission.kind === "text" && view.claims.length === 1 && bare(c.submission.text) === bare(view.claims[0]!.text) ? view.claims[0] : undefined;
   return (
     <>
@@ -259,18 +318,44 @@ export function CaseResult({ c, view, events = [], models = seatModels(c, events
           </section>
         )}
       </div>
-      {view.contentKind === "question" ? (
+      {questions ? (
         <section aria-labelledby="case-summary-title" className="mt-8 rule-double pt-5">
-          <h2 id="case-summary-title" className="font-display text-3xl">Síntesis del panel</h2>
-          <p className="mt-1 text-xs text-ink-soft">Por el moderador · Las preguntas no se califican: el panel responde y el moderador sintetiza sus respuestas.</p>
+          <div className="flex flex-wrap items-start gap-3">
+            <div>
+              <h2 id="case-summary-title" className="font-display text-3xl">{rated ? "Respuestas del panel" : "Síntesis del panel"}</h2>
+              <p className="mt-1 text-xs text-ink-soft">{rated ? "Cada analista responde Sí, No, Depende, No sé o Dato; tres respuestas iguales dan la del panel, y el moderador sintetiza sus fundamentos." : "Por el moderador · Las preguntas no se califican: el panel responde y el moderador sintetiza sus respuestas."}</p>
+            </div>
+            {answers && view.questions.length > 1 && (
+              <div className="ml-auto text-right" aria-label={"Resultado general: " + (answers === "mixto" ? "Mixto" : ANSWER_LABEL[answers])}>
+                <p className="text-[10px] text-ink-soft">Resultado general</p>
+                <p className={"mt-0.5 inline-flex items-center gap-1.5 font-display text-xl leading-none " + (answers === "mixto" ? "text-ink" : VERDICT_TEXT[answers])}>
+                  {answers !== "mixto" && <VerdictDot verdict={answers} />}
+                  {answers === "mixto" ? "Mixto" : ANSWER_LABEL[answers]}
+                </p>
+              </div>
+            )}
+          </div>
           {view.questions.map((question) => (
             <article key={question.id} id={question.id} aria-label={"Pregunta " + question.id} className="mt-5 scroll-mt-24 border-t border-rule pt-4 target:rounded-sm target:bg-celeste/10">
               <p className="font-mono text-[11px] text-ink-soft">{question.id}</p>
               <h3 className="mt-1 break-words font-display text-xl leading-snug"><Cited text={question.text} ctx={citations} /></h3>
+              <Answer id={question.id} votes={question.votes} judgment={question.judgment} models={models} citations={citations} />
               <Synthesis synthesis={question.synthesis} citations={citations} />
             </article>
           ))}
+          {!view.questions.length && <Answer id={WHOLE} votes={view.answerVotes} judgment={view.answerJudgment} models={models} citations={citations} />}
           {(view.synthesis || !view.questions.length) && <Synthesis synthesis={view.synthesis} citations={citations} />}
+          {rated && (
+            <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-rule pt-4 text-[11px] text-ink-soft">
+              <span>Cada círculo es una respuesta:</span>
+              <span className="inline-flex items-center gap-1"><span className="size-2.5 rounded-full bg-verdadero" /> {ANSWER_LABEL.verdadero}</span>
+              <span className="inline-flex items-center gap-1"><span className="size-2.5 rounded-full bg-falso" /> {ANSWER_LABEL.falso}</span>
+              <span className="inline-flex items-center gap-1"><span className="size-2.5 rounded-full bg-enganoso" /> {ANSWER_LABEL.enganoso}</span>
+              <span className="inline-flex items-center gap-1"><span className="size-2.5 rounded-full bg-insostenible" /> {ANSWER_LABEL.no_verificable}</span>
+              <span className="inline-flex items-center gap-1"><span className="size-2.5 rounded-full bg-dato" /> {ANSWER_LABEL.dato}</span>
+              <a href="/method#respuestas" className="text-celeste-deep underline underline-offset-4">Cómo leer las respuestas</a>
+            </div>
+          )}
         </section>
       ) : !view.dismissal && (view.summary || tieBreaks.length > 0 || (quick && c.status === "resolved")) && (
         <section aria-labelledby="case-summary-title" className="mt-8 rule-double pt-5">

@@ -1,5 +1,5 @@
-import { VERDICT_LABEL } from "@/domain/case.ts";
-import { MODEL_NAME, modelDetail, modelMark, modelName, type Counsel, type ModelUse, type Verdict } from "@/domain/court.ts";
+import { answerLabel, VERDICT_LABEL } from "@/domain/case.ts";
+import { MODEL_NAME, modelDetail, modelMark, modelName, type Answer, type Counsel, type ModelUse } from "@/domain/court.ts";
 
 export function ModelMark({ model, className = "size-5", style }: { model: Counsel; className?: string; style?: React.CSSProperties }) {
   switch (model) {
@@ -39,25 +39,35 @@ export function ModelMark({ model, className = "size-5", style }: { model: Couns
   }
 }
 
-const VERDICT_COLOR: Record<Verdict, string> = {
+// Verdicts of claims and answers to questions share their marks; Dato is only an answer.
+const VERDICT_COLOR: Record<Answer, string> = {
   verdadero: "bg-verdadero",
   falso: "bg-falso",
   no_verificable: "bg-insostenible",
   enganoso: "bg-enganoso",
+  dato: "bg-dato",
 };
 
-export const VERDICT_TEXT: Record<Verdict, string> = {
+export const VERDICT_TEXT: Record<Answer, string> = {
   verdadero: "text-verdadero",
   falso: "text-falso",
   no_verificable: "text-insostenible-text",
   enganoso: "text-enganoso-text",
+  dato: "text-dato",
 };
 
-function verdictGlyphColor(verdict: Verdict): string {
+function verdictGlyphColor(verdict: Answer): string {
   return verdict === "no_verificable" || verdict === "enganoso" ? "text-caution-glyph" : "text-verdict-glyph";
 }
 
-export function VerdictGlyph({ verdict, className = "size-3", style }: { verdict: Verdict; className?: string; style?: React.CSSProperties }) {
+export function VerdictGlyph({ verdict, className = "size-3", style }: { verdict: Answer; className?: string; style?: React.CSSProperties }) {
+  if (verdict === "dato")
+    return (
+      <svg viewBox="0 0 16 16" className={className} style={style} aria-hidden>
+        <circle cx="8" cy="3.8" r="1.2" fill="currentColor" />
+        <path d="M8 7v6.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      </svg>
+    );
   if (verdict === "no_verificable")
     return (
       <svg viewBox="0 0 16 16" className={className} style={style} aria-hidden>
@@ -79,7 +89,7 @@ export function VerdictGlyph({ verdict, className = "size-3", style }: { verdict
   );
 }
 
-export function VerdictDot({ verdict, className = "size-4" }: { verdict: Verdict; className?: string }) {
+export function VerdictDot({ verdict, className = "size-4" }: { verdict: Answer; className?: string }) {
   return (
     <span className={"grid shrink-0 place-items-center rounded-full " + verdictGlyphColor(verdict) + " " + VERDICT_COLOR[verdict] + " " + className}>
       <VerdictGlyph verdict={verdict} className="size-2.5" />
@@ -98,8 +108,9 @@ export function ModelName({ model }: { model: ModelUse }) {
   );
 }
 
-export function VoteChip({ model, verdict, used, size = "md" }: { model: Counsel; verdict?: Verdict | null; used?: ModelUse; size?: "sm" | "md" }) {
-  const label = MODEL_NAME[model] + (used ? " (" + modelDetail(used) + ")" : "") + ": " + (verdict ? VERDICT_LABEL[verdict] : verdict === null ? "No corresponde" : "no votó");
+// question: the vote answers a question (Sí, No, Depende, No sé, Dato) instead of rating a claim.
+export function VoteChip({ model, verdict, used, size = "md", question = false }: { model: Counsel; verdict?: Answer | null; used?: ModelUse; size?: "sm" | "md"; question?: boolean }) {
+  const label = MODEL_NAME[model] + (used ? " (" + modelDetail(used) + ")" : "") + ": " + (verdict === undefined ? "no votó" : verdict && (question || verdict === "dato") ? answerLabel(verdict) : verdict ? VERDICT_LABEL[verdict] : "No corresponde");
   return (
     <span title={label} aria-label={label} className={"relative inline-grid place-items-center rounded-full border border-rule bg-paper/70 shadow-sm " + (size === "sm" ? "size-6" : "size-10")}>
       <ModelMark model={model} className={size === "sm" ? "size-3" : "size-5"} />
@@ -145,8 +156,8 @@ export function GavelIcon({ className = "size-5" }: { className?: string }) {
   );
 }
 
-export function JudgeSeal({ verdict, judge, size = "md" }: { verdict: Verdict; judge?: ModelUse; size?: "md" | "lg" }) {
-  const label = "Desempate del moderador: " + VERDICT_LABEL[verdict];
+export function JudgeSeal({ verdict, judge, size = "md", question = false }: { verdict: Answer | null; judge?: ModelUse; size?: "md" | "lg"; question?: boolean }) {
+  const label = "Desempate del moderador: " + (verdict && (question || verdict === "dato") ? answerLabel(verdict) : verdict ? VERDICT_LABEL[verdict] : "No corresponde");
   const mark = judge && modelMark(judge.id);
   const dims = size === "lg" ? "size-24" : "size-14";
   return (
@@ -167,12 +178,11 @@ export function JudgeSeal({ verdict, judge, size = "md" }: { verdict: Verdict; j
       </span>
       <span
         className={
-          "absolute -bottom-1 grid place-items-center rounded-full ring-2 ring-paper " + verdictGlyphColor(verdict) + " " +
-          VERDICT_COLOR[verdict] +
+          "absolute -bottom-1 grid place-items-center rounded-full ring-2 ring-paper " + (verdict ? verdictGlyphColor(verdict) + " " + VERDICT_COLOR[verdict] : "text-white bg-ink-soft/40") +
           (size === "lg" ? " size-7" : " size-5")
         }
       >
-        <VerdictGlyph verdict={verdict} className={size === "lg" ? "size-4" : "size-3"} />
+        {verdict ? <VerdictGlyph verdict={verdict} className={size === "lg" ? "size-4" : "size-3"} /> : <span className="text-[10px] leading-none">–</span>}
       </span>
     </span>
   );

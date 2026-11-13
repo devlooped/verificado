@@ -61,6 +61,11 @@ export function seatModels(record: { models?: ModelSnapshot }, events: readonly 
 export const VERDICTS = ["verdadero", "falso", "no_verificable", "enganoso"] as const;
 export type Verdict = (typeof VERDICTS)[number];
 
+// The answers to a question: the codes of the verdicts (Sí, No, No sé,
+// Depende) and Dato, a fact or a figure the question asks for and the evidence gives.
+export const ANSWERS = [...VERDICTS, "dato"] as const;
+export type Answer = (typeof ANSWERS)[number];
+
 export const STAGES = ["opening", "rebuttal", "closing"] as const;
 export type Stage = (typeof STAGES)[number];
 
@@ -86,8 +91,8 @@ export function checkType(s: Submission): CheckType {
 }
 
 // What the classifier finds in the material of a Quick check, before any
-// research: assertions to check and rate, or questions for the panel to answer,
-// without any rating; and each of them, as items. Cases recorded before the
+// research: assertions to check and rate, or questions for the panel to answer
+// (Sí, No, Depende, No sé or Dato) and synthesize; and each of them, as items. Cases recorded before the
 // classification are assertions.
 export const CONTENT_KINDS = ["assertion", "question"] as const;
 export type ContentKind = (typeof CONTENT_KINDS)[number];
@@ -194,7 +199,12 @@ export type CourtEvent =
   // whole material when no question was identified), of the majority's opinion
   // when at least three analysts agree, else of each position.
   | { type: "answer_synthesis"; questionId?: string; text: string; majority: boolean }
-  | { type: "absence"; by: Counsel; stage: Stage | "discovery" | "instruction" | "source_review" | "objection" | "content" | "answer" }
+  // Questions: an analyst's answer to one question (to the whole material when
+  // no question was identified) as Sí, No, Depende, No sé or Dato, recorded
+  // with the codes of ANSWERS (ANSWER_LABEL). Runs started before these ratings have none.
+  | { type: "answer_vote"; by: Counsel; questionId?: string; verdict: Answer; rationale: string }
+  | { type: "answer_judgment"; questionId?: string; verdict: Answer; method: "consensus" | "judge"; reasoning: string }
+  | { type: "absence"; by: Counsel; stage: Stage | "discovery" | "instruction" | "source_review" | "objection" | "content" | "answer" | "answer_vote" }
   | { type: "session_closed" };
 
 export interface QuickSource {
@@ -232,15 +242,24 @@ export function majority(verdicts: Verdict[]): Verdict | undefined {
   return VERDICTS.find((v) => verdicts.filter((x) => x === v).length >= 3);
 }
 
+// The answer at least three analysts gave to a question.
+export function answerMajority(verdicts: ReadonlyArray<Answer>): Answer | undefined {
+  return ANSWERS.find((v) => verdicts.filter((x) => x === v).length >= 3);
+}
+
 export interface ClaimView extends Claim {
   votes: Partial<Record<Counsel, { verdict: Verdict; rationale: string }>>;
   judgment?: { verdict: Verdict; method: "consensus" | "judge"; reasoning: string };
 }
 
 export type AnswerSynthesis = { text: string; majority: boolean };
+export type AnswerVotes = Partial<Record<Counsel, { verdict: Answer; rationale: string }>>;
+export type AnswerJudgment = { verdict: Answer; method: "consensus" | "judge"; reasoning: string };
 
 export interface QuestionView extends Claim {
   synthesis?: AnswerSynthesis;
+  votes: AnswerVotes;
+  judgment?: AnswerJudgment;
 }
 
 export interface CaseView {
@@ -253,8 +272,10 @@ export interface CaseView {
   // Absent on cases recorded before the classification: they are assertions.
   contentKind?: ContentKind;
   questions: QuestionView[];
-  // The synthesis of the whole material, when no question was identified.
+  // The synthesis of the whole material, when no question was identified, and its rating.
   synthesis?: AnswerSynthesis;
+  answerVotes: AnswerVotes;
+  answerJudgment?: AnswerJudgment;
   evidence: Map<string, Evidence>;
   sources: Map<string, SourceView>;
   struck: Set<string>;
@@ -264,7 +285,7 @@ export interface CaseView {
 }
 
 export function project(events: readonly CourtEvent[]): CaseView {
-  const view: CaseView = { claims: [], contentVotes: {}, contentVotingRecorded: false, responses: {}, questions: [], evidence: new Map(), sources: new Map(), struck: new Set(), closed: false };
+  const view: CaseView = { claims: [], contentVotes: {}, contentVotingRecorded: false, responses: {}, questions: [], answerVotes: {}, evidence: new Map(), sources: new Map(), struck: new Set(), closed: false };
   const objectionTarget = new Map<string, string>();
   const claim = (id: string) => view.claims.find((c) => c.id === id);
   for (const e of events) {
@@ -275,13 +296,26 @@ export function project(events: readonly CourtEvent[]): CaseView {
       case "content_classified":
         view.contentKind = e.kind;
         if (e.kind === "assertion") view.claims = e.items.map((c) => ({ ...c, votes: {} }));
-        else view.questions = e.items.map((q) => ({ ...q }));
+        else view.questions = e.items.map((q) => ({ ...q, votes: {} }));
         break;
       case "answer_synthesis": {
         const synthesis = { text: e.text, majority: e.majority };
         const question = e.questionId ? view.questions.find((q) => q.id === e.questionId) : undefined;
         if (question) question.synthesis = synthesis;
         else if (!e.questionId) view.synthesis = synthesis;
+        break;
+      }
+      case "answer_vote": {
+        const question = e.questionId ? view.questions.find((q) => q.id === e.questionId) : undefined;
+        const votes = question ? question.votes : !e.questionId ? view.answerVotes : undefined;
+        if (votes) votes[e.by] = { verdict: e.verdict, rationale: e.rationale };
+        break;
+      }
+      case "answer_judgment": {
+        const judgment = { verdict: e.verdict, method: e.method, reasoning: e.reasoning };
+        const question = e.questionId ? view.questions.find((q) => q.id === e.questionId) : undefined;
+        if (question) question.judgment = judgment;
+        else if (!e.questionId) view.answerJudgment = judgment;
         break;
       }
       case "dismissed":

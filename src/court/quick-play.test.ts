@@ -4,7 +4,7 @@ import { MockLanguageModelV4 } from "ai/test";
 import { MemoryArtifactStore } from "../evidence/artifacts.ts";
 import { createQuickMockModel } from "./mock.ts";
 import { courtMaxOutputTokens, courtModel, DEFAULT_MODELS } from "./models.ts";
-import { quickAnswer, quickClassify, quickIdentifyClaims, quickSummarize, quickSynthesize, quickTiebreak, quickVote, type QuickPlayDependencies, type QuickStep } from "./quick-play.ts";
+import { quickAnswer, quickClassify, quickIdentifyClaims, quickRate, quickRateTiebreak, quickSummarize, quickSynthesize, quickTiebreak, quickVote, type QuickPlayDependencies, type QuickStep } from "./quick-play.ts";
 import { failed, holdQuickSession } from "./quick.ts";
 import { COUNSEL, project, type RecordedEvent, type Submission } from "../domain/court.ts";
 
@@ -229,8 +229,37 @@ test("the classifier, the answers to questions and their syntheses write their r
   const asked = read("quick/gemini/answer-0/request.json");
   assert.match(JSON.stringify(asked.messages), /QUESTION: ¿Cuántos.*Questions identified:.*P1/);
   assert.doesNotMatch(JSON.stringify(asked), /FACT CHECK/);
-  assert.match(asked.system, /Do not rate the questions/);
+  assert.match(asked.system, /yes, no, that it depends/);
   assert.match(JSON.stringify(read("quick/judge/claims/P1/synthesis-0/request.json").messages), /## Gemini.*ONLY to this question.*P1/);
   assert.ok(files.has("quick/judge/synthesis-0/request.json"), "a synthesis of the whole material has no question");
   assert.deepEqual(audit.map((a) => [a.id, a.body.seat]), [["quick:classifier:classify:0", "classifier"], ["quick:classifier:classify:1", "classifier"], ["quick:gemini:answer:0", "gemini"], ["quick:judge:claim:P1:synthesis:0", "judge"], ["quick:judge:synthesis:0", "judge"]]);
+});
+
+test("the answer to a question as Sí, No, Depende, No sé or Dato, its tie-break and the rated synthesis write their request, result and model step", async () => {
+  const artifacts = new MemoryArtifactStore();
+  const audit: Array<{ id: string; body: Record<string, unknown> }> = [];
+  const question: Submission = { kind: "text", text: "¿Bajó la pobreza en 2026?", check: "quick" };
+  const P1 = { id: "P1", quote: "", text: "¿Bajó la pobreza en 2026?" };
+  const answer = await quickAnswer(CASE, question, "es", MODEL, "gemini", 0, deps("answer", artifacts, audit), [P1], "2026-11-11", true);
+  assert.ok(!failed(answer));
+  const rating = await quickRate(CASE, question, "es", MODEL, "gemini", answer, 0, undefined, deps("rating", artifacts, audit), P1, "2026-11-11");
+  assert.ok(!failed(rating));
+  assert.equal(rating.verdict, "no_verificable");
+  const whole = await quickRate(CASE, question, "es", MODEL, "gemini", answer, 0, undefined, deps("rating", artifacts, audit));
+  assert.ok(!failed(whole));
+  const decision = await quickRateTiebreak(CASE, question, "es", MODEL, [{ by: "gemini", answer: answer.text, vote: { verdict: "no_verificable", rationale: "Pide una opinión." } }], 0, deps("rating_tiebreak", artifacts, audit), P1, "2026-11-11");
+  assert.ok(!failed(decision));
+  assert.ok(!failed(await quickSynthesize(CASE, question, "es", MODEL, [{ by: "gemini", answer: answer.text }], 1, deps("synthesis", artifacts, audit), "2026-11-11", P1, { verdict: "enganoso", method: "judge" })));
+
+  const files = await artifacts.read(CASE);
+  const read = (path: string) => JSON.parse(new TextDecoder().decode(files.get(path)));
+  const rated = read("quick/gemini/claims/P1/rating-0/request.json");
+  assert.equal(rated.reasoning, "none");
+  assert.match(JSON.stringify(rated.messages), /QUESTION: ¿Bajó.*ONLY this question.*P1/);
+  assert.deepEqual(rated.output.properties.verdict.enum, ["verdadero", "falso", "no_verificable", "enganoso", "dato"]);
+  assert.match(JSON.stringify(read("quick/gemini/rating-0/request.json").messages), /overall answer to the submitted question/);
+  const tiebreak = read("quick/judge/claims/P1/rating_tiebreak-0/request.json");
+  assert.match(JSON.stringify(tiebreak.messages), /## Gemini.*Vote: no_verificable\. Pide una opinión\..*ONLY for this question.*P1/);
+  assert.match(JSON.stringify(read("quick/judge/claims/P1/synthesis-1/request.json").messages), /The panel's answer: it depends, by the moderator's tie-break\./);
+  assert.deepEqual(audit.map((a) => a.id), ["quick:gemini:answer:0", "quick:gemini:claim:P1:rating:0", "quick:gemini:rating:0", "quick:judge:claim:P1:rating_tiebreak:0", "quick:judge:claim:P1:synthesis:1"]);
 });

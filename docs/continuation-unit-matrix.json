@@ -1678,7 +1678,7 @@
       "routes": ["quick:1", "quick:2", "quick:3", "quick:4", "quick:5"],
       "dependsOn": ["quick.classify", "quick.answer"],
       "key": "quick/judge/question-or-content/synthesis/attempt/request-hash",
-      "result": "QuickSynthesis no vacía con majority por pregunta (o del material completo) sobre al menos tres respuestas; sin votos ni calificación; hasta 2 intentos",
+      "result": "QuickSynthesis no vacía con majority por pregunta (o del material completo) sobre al menos tres respuestas; en workflows con rateAnswers recibe la respuesta del panel (Sí, No, Depende, No sé o Dato) cuando la hay; hasta 2 intentos",
       "effects": ["model", "artifact", "sql"],
       "evidence": [
         { "file": "src/workflows/court-session.ts", "symbol": "synthesizeQuick" },
@@ -1687,6 +1687,38 @@
       "gaps": ["G01", "G03", "G04", "G06"],
       "workflowSteps": [
         { "file": "src/workflows/court-session.ts", "symbol": "synthesizeQuick" }
+      ]
+    },
+    {
+      "id": "quick.rating",
+      "routes": ["quick:1", "quick:2", "quick:3", "quick:4", "quick:5"],
+      "dependsOn": ["quick.classify", "quick.answer"],
+      "key": "quick/seat/question-or-content/rating/attempt/request-hash",
+      "result": "QuickRating por asiento y pregunta (o material completo): verdict de ANSWERS, los códigos de veredicto (Sí, No, Depende, No sé) o dato (Dato), rationale >=10, retry y text completos; sólo en workflows iniciados con rateAnswers; hasta 2 intentos",
+      "effects": ["model", "artifact", "sql"],
+      "evidence": [
+        { "file": "src/workflows/court-session.ts", "symbol": "rateQuick" },
+        { "file": "src/court/quick-play.ts", "symbol": "quickRate" }
+      ],
+      "gaps": ["G01", "G03", "G04", "G06"],
+      "workflowSteps": [
+        { "file": "src/workflows/court-session.ts", "symbol": "rateQuick" }
+      ]
+    },
+    {
+      "id": "quick.rating_tiebreak",
+      "routes": ["quick:1", "quick:2", "quick:3", "quick:4", "quick:5"],
+      "dependsOn": ["quick.rating"],
+      "key": "quick/judge/question-or-content/rating_tiebreak/attempt/request-hash",
+      "result": "QuickRatingDecision por pregunta (o material completo) con al menos tres votos sin mayoría, reasoning no vacío; sin nueva investigación; sin decisión la pregunta queda sin respuesta del panel y la consulta sigue",
+      "effects": ["model", "artifact", "sql"],
+      "evidence": [
+        { "file": "src/workflows/court-session.ts", "symbol": "rateTiebreakQuick" },
+        { "file": "src/court/quick-play.ts", "symbol": "quickRateTiebreak" }
+      ],
+      "gaps": ["G01", "G03", "G04", "G06"],
+      "workflowSteps": [
+        { "file": "src/workflows/court-session.ts", "symbol": "rateTiebreakQuick" }
       ]
     },
     {

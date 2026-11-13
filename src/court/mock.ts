@@ -138,6 +138,8 @@ export function createQuickMockModel(step: QuickStep) {
       ? { claims: [{ quote: "", text: prefix + "Primera afirmación ficticia para probar el flujo." }, { quote: "", text: prefix + "Segunda afirmación ficticia para probar el flujo." }] }
       : step === "vote"
       ? { verdict: "no_verificable", rationale: prefix + "La respuesta es ficticia: no verifica el contenido enviado." }
+      : step === "rating"
+      ? { verdict: "no_verificable", rationale: prefix + "La respuesta es ficticia: no permite saber la respuesta a la pregunta." }
       : { verdict: "no_verificable", reasoning: prefix + "Desempate ficticio, sin verificación real." });
   return new MockLanguageModelV4({
     provider: "local-mock",
